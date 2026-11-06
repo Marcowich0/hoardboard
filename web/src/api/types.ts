@@ -29,7 +29,7 @@ export interface Overview {
   donut: UsedSplit
   /** The same split per day, oldest first. */
   trend: Trend
-  /** Null with fewer than 7 days of History, or when Used space isn't growing. */
+  /** Null with fewer than 7 days of History. */
   forecast: Forecast | null
   /** The daily points of total Used space the forecast was fitted to (at most 90). */
   forecastDays: number
@@ -56,7 +56,9 @@ export interface ParityDisk {
 
 /**
  * Used space in parts: a byte hardlinked into several categories goes to the
- * highest-ranked one, so the parts never overlap.
+ * highest-ranked one, so the parts never overlap. They add up to Used space
+ * exactly: when the Scan saw more, the categories and Uncategorized shrink in
+ * proportion and Unaccounted is 0.
  */
 export interface UsedSplit {
   /** Every category, in Rank order. */
@@ -68,8 +70,8 @@ export interface UsedSplit {
 /**
  * Used space per day from the first Scan to today, split like the donut under
  * today's Assignments and Rank: each day's parts sum to that day's Used space,
- * the last day's are the donut. A day's Unaccounted is 0 when its Used space
- * wasn't recorded.
+ * the last day's are the donut. A day whose Used space wasn't recorded has
+ * its parts as scanned and Unaccounted 0.
  */
 export interface Trend {
   days: string[]
@@ -82,8 +84,8 @@ export interface Trend {
 export interface Forecast {
   /** The fitted growth over the last 90 days, per average month (365.25/12 days). */
   bytesPerMonth: number
-  /** The day the fitted line reaches the total size. */
-  fullOn: string
+  /** The day the fitted line reaches the total size; null when it is flat or falling. */
+  fullOn: string | null
 }
 
 // GET /api/tree?path=&period= ------------------------------------------------

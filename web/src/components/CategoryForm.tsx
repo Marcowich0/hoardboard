@@ -4,6 +4,9 @@ import { presets } from '../lib/colours.ts'
 import { useCurrentTheme } from '../theme.ts'
 import { CheckIcon } from './icons.tsx'
 
+/** The Custom button's colour wheel: every preset, round to the first again. */
+const presetWheel = `conic-gradient(${[...presets, presets[0]].map((p) => p.light).join(', ')})`
+
 /** A category's name and colour: the presets, or any colour. */
 export function CategoryFields({
   value,
@@ -66,7 +69,7 @@ export function CategoryFields({
               style={{
                 background: custom
                   ? value.colour
-                  : 'conic-gradient(#e34948, #eda100, #1baf7a, #2a78d6, #6250d6, #e87ba4, #e34948)',
+                  : presetWheel,
               }}
             />
             Custom

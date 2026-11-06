@@ -4,6 +4,7 @@ import { api, type Overview as OverviewData } from '../api/index.ts'
 import { useApi } from '../api/useApi.ts'
 import DiskChart from '../charts/DiskChart.tsx'
 import DonutChart from '../charts/DonutChart.tsx'
+import { hatchCss } from '../charts/hatch.ts'
 import { useParts } from '../charts/parts.ts'
 import TrendChart from '../charts/TrendChart.tsx'
 import { ShieldIcon, TrendIcon } from '../components/icons.tsx'
@@ -87,6 +88,7 @@ function OverviewBody({ data }: { data: OverviewData }) {
 function Summary({ data }: { data: OverviewData }) {
   const parts = useParts(data.donut)
   const { totals, forecast } = data
+  const fullOn = forecast?.fullOn ?? null
   const usedShare = totals.size > 0 ? totals.used / totals.size : 0
 
   return (
@@ -116,9 +118,7 @@ function Summary({ data }: { data: OverviewData }) {
                   style={{
                     width: `${(p.bytes / totals.size) * 100}%`,
                     backgroundColor: p.colour,
-                    backgroundImage: p.hatch
-                      ? 'repeating-linear-gradient(135deg, rgba(0,0,0,0.28) 0 1.5px, transparent 1.5px 4px)'
-                      : undefined,
+                    backgroundImage: p.hatch ? hatchCss : undefined,
                   }}
                 />
               ))}
@@ -137,24 +137,18 @@ function Summary({ data }: { data: OverviewData }) {
           <Figure
             label="Growth"
             icon={<TrendIcon size={14} />}
-            value={forecast ? `${formatChange(forecast.bytesPerMonth)}` : '—'}
-            detail={
-              forecast
-                ? `a month, last ${data.forecastDays} days`
-                : data.forecastDays < 7
-                  ? 'Needs a week of history'
-                  : 'Not growing'
-            }
+            value={forecast ? `${formatChange(forecast.bytesPerMonth)} / month` : '—'}
+            detail={forecast ? `last ${data.forecastDays} days` : 'Needs a week of history'}
           />
           <Figure
             label="Full in"
-            value={forecast ? formatTimeLeft(forecast.fullOn, data.today) : '—'}
+            value={fullOn ? formatTimeLeft(fullOn, data.today) : '—'}
             detail={
-              forecast
-                ? `around ${monthYear.format(new Date(`${forecast.fullOn}T00:00:00Z`))}`
-                : data.forecastDays < 7
-                  ? 'Needs a week of history'
-                  : 'No end in sight'
+              fullOn
+                ? `around ${monthYear.format(new Date(`${fullOn}T00:00:00Z`))}`
+                : forecast
+                  ? 'No end in sight'
+                  : 'Needs a week of history'
             }
           />
         </dl>

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { formatBytes, formatShare } from '../lib/format.ts'
+import { escapeHtml } from '../lib/html.ts'
 import { useCurrentTheme } from '../theme.ts'
 import { chartFont, chrome } from './chrome.ts'
 import EChart, { type ChartOption } from './EChart.tsx'
@@ -23,7 +24,7 @@ export default function DiskSplitChart({
         trigger: 'item',
         formatter: (p) => {
           const d = disks[(p as { dataIndex: number }).dataIndex]
-          return `<b>${d.disk}</b><br/>${formatBytes(d.bytes)} · ${formatShare(d.bytes, total)} of this folder`
+          return `<b>${escapeHtml(d.disk)}</b><br/>${formatBytes(d.bytes)} · ${formatShare(d.bytes, total)} of this folder`
         },
       },
       xAxis: { type: 'value', max: Math.max(...disks.map((d) => d.bytes)), show: false },

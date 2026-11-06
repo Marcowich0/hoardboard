@@ -6,6 +6,7 @@ import { useCurrentTheme } from '../theme.ts'
 import { Swatch } from '../components/ui.tsx'
 import { chrome } from './chrome.ts'
 import EChart, { type ChartOption } from './EChart.tsx'
+import { hatchDecal } from './hatch.ts'
 import { type Part, useParts } from './parts.ts'
 
 /**
@@ -45,15 +46,7 @@ export default function DonutChart({ split, onSelect }: { split: UsedSplit; onSe
             value: p.bytes,
             itemStyle: {
               color: p.colour,
-              decal: p.hatch
-                ? {
-                    symbol: 'rect',
-                    dashArrayX: [1, 0],
-                    dashArrayY: [2, 4],
-                    rotation: -Math.PI / 4,
-                    color: 'rgba(0,0,0,0.22)',
-                  }
-                : undefined,
+              decal: p.hatch ? hatchDecal : undefined,
             },
           })),
         },

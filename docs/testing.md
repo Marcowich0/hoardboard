@@ -87,7 +87,8 @@ real capability and real mounts, which Seam 1 can only fake. It uses `jq`.
 - Expected values come from the fixture you built (a literal), never recomputed
   the way the code computes them.
 - Keep files small (a few `apitest.BlockSize`): every test shares one real
-  filesystem, and the overview tests watch its live Used space.
+  filesystem. A test that asserts on Used space fixes it with
+  `Mount.SetSpace`, never by watching the real filesystem grow.
 - The web app has lint, typecheck and unit tests of pure logic in v1, no
   browser tests (see below).
 

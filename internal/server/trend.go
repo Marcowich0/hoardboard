@@ -23,36 +23,39 @@ type trendSeriesJSON struct {
 	Bytes      []int64     `json:"bytes"`
 }
 
-// trend splits each day of History by Rank under the current Assignments
-// and Rank, so a byte in several categories is stacked once, in the
+// trend splits each day of History by Rank (ranked, highest first) under
+// the Assignments, so a byte in several categories is stacked once, in the
 // highest-Ranked of them. Today's Used space is liveUsed, the donut's, so
 // the last day's stack is the donut.
-func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
-	p, err := s.measurePast(ctx)
+func (s *Server) trend(ctx context.Context, r ranking, liveUsed int64) (trendJSON, error) {
+	p, err := category.MeasurePast(ctx, s.history, r.assigned, s.today())
 	if err != nil {
 		return trendJSON{}, err
 	}
-	used, err := s.usedDaily(ctx, p.from, len(p.sizes))
+	used, err := s.usedDaily(ctx, p.From, len(p.Sizes))
 	if err != nil {
 		return trendJSON{}, err
 	}
-	n := len(p.sizes)
+	n := len(p.Sizes)
 	out := trendJSON{
 		Days:          make([]string, n),
-		Categories:    make([]trendSeriesJSON, len(p.ranked)),
+		Categories:    make([]trendSeriesJSON, len(r.ranked)),
 		Uncategorized: make([]int64, n),
 		Unaccounted:   make([]int64, n),
 	}
-	for i, id := range p.ranked {
+	for i, id := range r.ranked {
 		out.Categories[i] = trendSeriesJSON{CategoryID: id, Bytes: make([]int64, n)}
 	}
-	for d, sz := range p.sizes {
-		day := p.from + history.Day(d)
+	for d, sz := range p.Sizes {
+		day := p.From + history.Day(d)
 		u := used[d]
-		if day == s.today() {
+		switch {
+		case day == s.today():
 			u = liveUsed
+		case u < 0:
+			u = sz.Total() // nothing to shrink to, nothing Unaccounted
 		}
-		split := sz.Split(p.ranked, u)
+		split := sz.Split(r.ranked, u)
 		out.Days[d] = day.String()
 		for i, part := range split.Categories {
 			out.Categories[i].Bytes[d] = part.Bytes
@@ -64,12 +67,15 @@ func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
 }
 
 // usedDaily is the Disks' total Used space on each of the n days from
-// from, as each day's last Scan recorded it; 0 on a day before Used space
-// History began (its Unaccounted is then 0).
+// from, as each day's last Scan recorded it; -1 on a day before Used space
+// History began.
 func (s *Server) usedDaily(ctx context.Context, from history.Day, n int) ([]int64, error) {
 	out := make([]int64, n)
 	if n == 0 {
 		return out, nil
+	}
+	for i := range out {
+		out[i] = -1
 	}
 	rows, err := s.history.TotalUsed(ctx, from+history.Day(n-1), n)
 	if err != nil {

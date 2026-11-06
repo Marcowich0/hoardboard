@@ -23,14 +23,14 @@ type forecastJSON struct {
 	// BytesPerMonth is the fitted line's growth.
 	BytesPerMonth int64 `json:"bytesPerMonth"`
 	// FullOn is the day the fitted line reaches the array's size,
-	// "YYYY-MM-DD".
-	FullOn string `json:"fullOn"`
+	// "YYYY-MM-DD"; null when the line is flat or falling.
+	FullOn *string `json:"fullOn"`
 }
 
 // forecast fits the last forecastWindow days of total Used space up to
 // today, and says how many daily points the fit had. The forecast is nil
-// with fewer than forecastMinPoints points, or when the line is flat or
-// falling. size is the array's size now.
+// with fewer than forecastMinPoints points; its FullOn is nil when the line
+// is flat or falling. size is the array's size now.
 func (s *Server) forecast(ctx context.Context, today history.Day, size int64) (*forecastJSON, int, error) {
 	points, err := s.history.TotalUsed(ctx, today, forecastWindow)
 	if err != nil {
@@ -58,10 +58,11 @@ func fitForecast(points []history.Row[int64], size int64) *forecastJSON {
 		sxx.Add(&sxx, new(big.Int).Mul(x, x))
 		sy.Add(&sy, y)
 	}
-	if sxy.Sign() <= 0 {
-		return nil
-	}
 	perDay := new(big.Rat).SetFrac(new(big.Int).Lsh(&sxy, 1), &sxx)
+	out := &forecastJSON{BytesPerMonth: round(new(big.Rat).Mul(perDay, daysPerMonth))}
+	if perDay.Sign() <= 0 {
+		return out
+	}
 	// The line's value today, at x = n-1: the mean plus (n-1)/2 days.
 	usedToday := new(big.Rat).SetFrac(&sy, big.NewInt(int64(n)))
 	usedToday.Add(usedToday, new(big.Rat).Mul(perDay, big.NewRat(int64(n-1), 2)))
@@ -71,10 +72,9 @@ func fitForecast(points []history.Row[int64], size int64) *forecastJSON {
 	if left.Sign() > 0 {
 		days = ceil(new(big.Rat).Quo(left, perDay))
 	}
-	return &forecastJSON{
-		BytesPerMonth: round(new(big.Rat).Mul(perDay, daysPerMonth)),
-		FullOn:        (points[n-1].Day + history.Day(days)).String(),
-	}
+	fullOn := (points[n-1].Day + history.Day(days)).String()
+	out.FullOn = &fullOn
+	return out
 }
 
 // ceil is the smallest integer not below r.

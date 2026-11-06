@@ -9,9 +9,7 @@ import (
 	"github.com/Marcowich0/hoardboard/internal/apitest"
 )
 
-// unit is the file size these tests build with: a few blocks, so that
-// their files barely move the Used space TestUsedSpaceIsLiveWithoutAScan
-// watches on the same real filesystem.
+// unit is the file size these tests build with: a few blocks.
 const unit = 4 * apitest.BlockSize
 
 // tree is GET /api/tree's answer (Tree in web/src/api/types.ts).
