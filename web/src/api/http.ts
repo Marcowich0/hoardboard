@@ -57,8 +57,11 @@ export const tree = (path: string, period: Period) =>
  */
 export const largest = (path: string) => getJSON<Largest>(`/api/largest?${new URLSearchParams({ path }).toString()}`)
 
-/** GET /api/scan: whether a Scan runs, and the last one that finished. */
+/** GET /api/scan: whether a Scan runs, the last one that finished, the latest skip and the next one due. */
 export const scanStatus = () => getJSON<ScanStatus>('/api/scan')
 
-/** POST /api/scan: starts a Scan, or joins the one already running. */
+/**
+ * POST /api/scan: starts a Scan, or joins the one already running; during array
+ * work (parity check, rebuild, mover) it is skipped, `started` false.
+ */
 export const scanNow = () => sendJSON<ScanRequestResult>('POST', '/api/scan')

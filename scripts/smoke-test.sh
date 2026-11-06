@@ -117,11 +117,12 @@ case "$overview" in
   *) echo "overview does not list parity" >&2; exit 1 ;;
 esac
 
-# A Scan, waited for, and the tree it makes.
+# A Scan, waited for (the schedule started one at startup; this joins it or
+# runs another), and the tree it makes.
 scan=$(curl -fsS -X POST "$url/api/scan?wait=true")
 echo "scan: $scan"
-jq -e '.status.last.id == 1 and .status.running == null' <<<"$scan" >/dev/null \
-  || { echo "the scan did not finish" >&2; exit 1; }
+jq -e '.started and .status.last != null and .status.running == null and .status.next != null' \
+  <<<"$scan" >/dev/null || { echo "the scan did not finish, or none is scheduled" >&2; exit 1; }
 
 # One Folder data/media/movies, its bytes on disk1 and disk2.
 media=$(curl -fsS "$url/api/tree?path=data/media")
@@ -145,6 +146,14 @@ data=$(curl -fsS "$url/api/tree?path=data")
 echo "tree data: $data"
 jq -e '[.children[].name] == ["media"] and .folder.size == 1835008' <<<"$data" >/dev/null \
   || { echo "the scan crossed into the mount at data/elsewhere" >&2; exit 1; }
+
+# While the mover runs (var.ini says so, read afresh), a Scan is skipped.
+sed 's/^shareMoverActive="no"$/shareMoverActive="yes"/' "$fixture/emhttp/var.ini" >"$fixture/emhttp/var.ini.new"
+mv "$fixture/emhttp/var.ini.new" "$fixture/emhttp/var.ini"
+skipped=$(curl -fsS -X POST "$url/api/scan?wait=true")
+echo "scan during the mover: $skipped"
+jq -e '.started == false and .status.skipped.reason == "Mover is running"' <<<"$skipped" >/dev/null \
+  || { echo "the scan was not skipped while the mover ran" >&2; exit 1; }
 
 # The embedded app answers its client routes.
 for path in / /categories /explorer; do
