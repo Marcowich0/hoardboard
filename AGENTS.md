@@ -31,7 +31,7 @@ owner's files on the server, only their metadata.
 | Go lint | `gofmt -l .` (must print nothing), `go vet ./...`, `go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...` |
 | Go vulnerabilities | `go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...` |
 | Web install | `cd web && npm ci` |
-| Web lint / typecheck / build | `cd web && npm run lint && npm run typecheck && npm run build` |
+| Web lint / typecheck / tests / build | `cd web && npm run lint && npm run typecheck && npm test && npm run build` |
 | Binary with the real app | `cd web && npm run build && cd .. && go build -tags webdist ./cmd/hoardboard` |
 | Image | `docker build --build-arg REVISION=$(git rev-parse HEAD) -t hoardboard:dev .` |
 | Container smoke test | `scripts/smoke-test.sh hoardboard:dev` |
@@ -39,6 +39,20 @@ owner's files on the server, only their metadata.
 
 Without `-tags webdist`, the binary embeds the stub page in `web/stub`, so
 `go build`, `go vet` and `go test` work without Node.
+
+## Web app rules
+
+- Pages get data only through `api` from `web/src/api/index.ts`, typed by
+  `web/src/api/types.ts`. Until an endpoint exists on the server, its line in
+  `index.ts` points at the in-browser fake (`web/src/api/fake/`); wiring a
+  page to the server means adding the endpoint to `web/src/api/http.ts` and
+  pointing that line at it. Keep `types.ts` and the Go handlers in step.
+- Sizes go through `formatBytes`/`formatChange` (`web/src/lib/format.ts`):
+  binary units only (KiB, MiB, GiB, TiB).
+- Category colours come from `useCategories().look(id)` (`web/src/categories.ts`),
+  never from a hex in a page or chart, so every view shows a category alike.
+- Names from the disks reach ECharts tooltips as HTML: pass them through
+  `escapeHtml` (`web/src/lib/html.ts`).
 
 CI (`.github/workflows/ci.yml`) runs all of the above on GitHub-hosted runners
 for every pull request and push, and publishes `ghcr.io/marcowich0/hoardboard`
@@ -74,6 +88,10 @@ internal/db/          opens hoardboard.db; Migrate(ctx, db, module, steps) per m
 internal/server/      HTTP server: one file per feature, routes added from init()
 internal/apitest/     Seam 1 test harness: fake mount root, fake Unraid status, fake clock
 web/                  React + Vite + TypeScript + Tailwind app; web.go embeds web/dist (-tags webdist)
+  src/api/            THE data boundary: types.ts (the API's JSON), index.ts (each endpoint: real or fake), fake/
+  src/categories.ts   the one source of category names and colours (colours: src/lib/colours.ts)
+  src/lib/            pure helpers with node tests: sizes (binary units), days, paths, sorting, axes
+  src/charts/         ECharts wrappers; every chart is ECharts
 scripts/smoke-test.sh Seam 2: container smoke test
 docs/adr/             architecture decisions
 GLOSSARY.md           domain terms
