@@ -2,7 +2,8 @@
 # Container smoke test (Seam 2 in spec #1): starts IMAGE the way the owner's
 # compose file does (every capability dropped except DAC_READ_SEARCH, a
 # read-only root filesystem, /mnt and the Unraid status folder mounted
-# read-only) over a tiny fixture, and checks GET /api/health.
+# read-only) over a tiny fixture, and checks GET /api/health, GET /api/overview
+# and the app's routes.
 #
 #   scripts/smoke-test.sh IMAGE [REVISION]
 #
@@ -86,6 +87,22 @@ if [ -n "$want_revision" ]; then
     *) echo "health does not report revision $want_revision" >&2; exit 1 ;;
   esac
 fi
+
+# The overview lists the fixture's Disks with live figures from their
+# filesystems (statfs works with every capability but DAC_READ_SEARCH
+# dropped), and parity apart from them.
+overview=$(curl -fsS "$url/api/overview")
+echo "overview: $overview"
+for disk in disk1 disk2 cache; do
+  case "$overview" in
+    *"\"name\":\"$disk\""*) ;;
+    *) echo "overview does not list $disk" >&2; exit 1 ;;
+  esac
+done
+case "$overview" in
+  *'"parity":[{"name":"parity",'*) ;;
+  *) echo "overview does not list parity" >&2; exit 1 ;;
+esac
 
 # The embedded app answers its client routes.
 for path in / /categories /explorer; do

@@ -85,6 +85,7 @@ cmd/hoardboard/       entry point: serve, or `hoardboard healthcheck` (the image
 internal/config/      settings from HOARDBOARD_* variables
 internal/clock/       Clock (now/today), System and Fake
 internal/db/          opens hoardboard.db; Migrate(ctx, db, module, steps) per module
+internal/inventory/   the Disks Unraid lists (disks.ini, var.ini) and their live Used/Free space (statfs)
 internal/server/      HTTP server: one file per feature, routes added from init()
 internal/apitest/     Seam 1 test harness: fake mount root, fake Unraid status, fake clock
 web/                  React + Vite + TypeScript + Tailwind app; web.go embeds web/dist (-tags webdist)

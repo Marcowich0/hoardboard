@@ -10,6 +10,7 @@ import (
 	"github.com/Marcowich0/hoardboard/internal/clock"
 	"github.com/Marcowich0/hoardboard/internal/config"
 	"github.com/Marcowich0/hoardboard/internal/db"
+	"github.com/Marcowich0/hoardboard/internal/inventory"
 )
 
 // Server holds what the handlers share.
@@ -18,6 +19,7 @@ type Server struct {
 	log   *slog.Logger
 	clock clock.Clock
 	db    *sql.DB
+	inv   *inventory.Inventory
 	mux   *http.ServeMux
 }
 
@@ -32,7 +34,8 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 	if c == nil {
 		c = clock.System()
 	}
-	s := &Server{cfg: cfg, log: log, clock: c, db: d, mux: http.NewServeMux()}
+	s := &Server{cfg: cfg, log: log, clock: c, db: d, mux: http.NewServeMux(),
+		inv: inventory.New(cfg.MountRoot, cfg.StatusDir)}
 	s.routes()
 	return s, nil
 }
