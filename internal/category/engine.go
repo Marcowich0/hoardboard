@@ -1,10 +1,11 @@
 // Package category is the category engine and its store: the Categories the
 // owner defines, the Assignments that put Folders into them, and what each
-// category takes in a Scan's tree.
+// category takes in a Scan's tree or on a past day.
 //
-// The engine works on the finished tree.Tree and never walks the Disks
-// again: a Folder's SingleBytes covers its files with one name, and the
-// Tree's Hardlinks cover the rest, each with the Folder of every name.
+// The engine never walks the Disks: a Folder's SingleBytes covers its files
+// with one name, and the hardlinked files cover the rest, each with the
+// Folder of every name (Bytes). A finished tree.Tree has both (Measure), and
+// so has History for every past day (docs/adr/0004-category-history.md).
 package category
 
 import (
@@ -69,41 +70,108 @@ type group struct {
 // Measure computes what each category takes in t (nil is an empty tree)
 // under the Assignments a.
 func Measure(t *tree.Tree, a Assignments) *Sizes {
-	s := &Sizes{groups: map[string]*group{}}
 	if t == nil {
-		return s
+		return MeasureBytes(Bytes{}, a)
 	}
-	// The category of each Folder holding a hardlinked file's name.
-	of := map[*tree.Folder]ID{}
-	var walk func(f *tree.Folder, path string, id ID)
-	walk = func(f *tree.Folder, path string, id ID) {
-		if c, ok := a[path]; ok && path != "" {
-			id = c
+	paths := map[*tree.Folder]string{}
+	path := func(f *tree.Folder) string {
+		p, ok := paths[f]
+		if !ok {
+			p = f.Path()
+			paths[f] = p
 		}
-		of[f] = id
-		own := f.SingleBytes
-		for _, c := range f.Folders {
-			own -= c.SingleBytes
-			p := c.Name
-			if path != "" {
-				p = path + "/" + c.Name
+		return p
+	}
+	links := make([]Link, len(t.Hardlinks))
+	for i, l := range t.Hardlinks {
+		links[i] = Link{Bytes: l.Bytes, Folders: make([]string, len(l.Folders))}
+		for j, f := range l.Folders {
+			links[i].Folders[j] = path(f)
+		}
+	}
+	return MeasureBytes(Bytes{
+		Single: func(p string) int64 {
+			if f, ok := t.Lookup(p); ok {
+				return f.SingleBytes
 			}
-			walk(c, p, id)
-		}
-		s.add([]ID{id}, own)
+			return 0
+		},
+		Links: links,
+	}, a)
+}
+
+// Bytes is what the engine needs of a tree, on any day: the SingleBytes of
+// a Folder (the root and the assigned Folders are all it asks for), and the
+// hardlinked files with the Folder of each name. A Scan's tree has them
+// (Measure), and so has History for a past day.
+type Bytes struct {
+	// Single is the SingleBytes of the Folder at path: its files with one
+	// name, at any depth. 0 for a Folder that does not exist. Nil is an
+	// empty tree.
+	Single func(path string) int64
+	// Links are the hardlinked files. Files whose names are in the same
+	// Folders may come as one Link with their bytes added up.
+	Links []Link
+}
+
+// Link is a hardlinked file (or several with the same Folders): its bytes,
+// and the path of the Folder of each of its names.
+type Link struct {
+	Bytes   int64
+	Folders []string
+}
+
+// MeasureBytes computes what each category takes in b under the
+// Assignments a. A file with one name is in the category of its Folder's
+// most specific Assignment; a hardlinked file is in the category of each of
+// its names.
+func MeasureBytes(b Bytes, a Assignments) *Sizes {
+	s := &Sizes{groups: map[string]*group{}}
+	single := b.Single
+	if single == nil {
+		single = func(string) int64 { return 0 }
 	}
-	walk(t.Root, "", Uncategorized)
+	// A Folder's SingleBytes adds up over its subfolders, so what an
+	// Assignment's category gets of the files with one name is its Folder's
+	// SingleBytes minus that of the Assignments nearest below it; the root
+	// ("", Uncategorized) likewise.
+	own := map[string]int64{"": single("")}
+	for path := range a {
+		if path != "" {
+			own[path] += single(path)
+		}
+	}
+	for path := range a {
+		if path == "" {
+			continue
+		}
+		_, above, _ := a.Of(parent(path))
+		own[above] -= single(path)
+	}
+	for path, bytes := range own {
+		s.add([]ID{a.byPath(path)}, bytes)
+	}
 
 	var ids []ID
-	for _, l := range t.Hardlinks {
+	for _, l := range b.Links {
 		ids = ids[:0]
 		for _, f := range l.Folders {
-			ids = append(ids, of[f])
+			id, _, _ := a.Of(f)
+			ids = append(ids, id)
 		}
 		slices.Sort(ids)
 		s.add(slices.Compact(ids), l.Bytes)
 	}
 	return s
+}
+
+// byPath is the category of the Assignment at path, Uncategorized for the
+// root.
+func (a Assignments) byPath(path string) ID {
+	if path == "" {
+		return Uncategorized
+	}
+	return a[path]
 }
 
 func (s *Sizes) add(ids []ID, bytes int64) {

@@ -23,6 +23,10 @@ import (
 //     rows in day order" an index range, whatever the number of Folders.
 //   - disk_history: a Disk's Used space from day on, by the Disk's name,
 //     with the same write rule (see disks.go).
+//   - folder_history.single_bytes: the Folder's SingleBytes, written with
+//     its Size; and link_sets and link_history, the hardlinked files (see
+//     links.go). With them, a category's past is measured under the current
+//     Assignments (docs/adr/0004-category-history.md).
 var migrations = []string{
 	`CREATE TABLE folders (
 		id   INTEGER PRIMARY KEY,
@@ -41,12 +45,26 @@ var migrations = []string{
 		used INTEGER NOT NULL,
 		PRIMARY KEY (disk, day)
 	) WITHOUT ROWID;`,
+	`ALTER TABLE folder_history ADD COLUMN single_bytes INTEGER NOT NULL DEFAULT 0;
+	CREATE TABLE link_sets (
+		id      INTEGER PRIMARY KEY,
+		folders TEXT NOT NULL UNIQUE
+	);
+	CREATE TABLE link_history (
+		set_id INTEGER NOT NULL REFERENCES link_sets (id),
+		day    INTEGER NOT NULL,
+		bytes  INTEGER NOT NULL,
+		PRIMARY KEY (set_id, day)
+	) WITHOUT ROWID;`,
 }
 
 // Value is a Folder's figures on one day.
 type Value struct {
 	Size        int64
 	SharedBytes int64
+	// SingleBytes is the part of Size in files with one name (see
+	// tree.Folder): what the category engine needs of a past day.
+	SingleBytes int64
 }
 
 // Store keeps the History of every Folder.
@@ -63,7 +81,8 @@ func Open(ctx context.Context, d *sql.DB) (*Store, error) {
 }
 
 // AfterScan records the finished Scan's tree as the History of the day it
-// finished (DayOf done.Finished): every Folder's Size and Shared bytes, and
+// finished (DayOf done.Finished): every Folder's Size, Shared bytes and
+// SingleBytes, and the hardlinked files by the Folders of their names, and
 // zero for every Folder History knows that the tree no longer holds. A later
 // Scan on the same day replaces the day's values, so the last Scan of a day
 // wins. It is a scan.AfterScan: it runs inside the transaction that records
@@ -73,7 +92,7 @@ func (s *Store) AfterScan(ctx context.Context, tx *sql.Tx, done scan.Done, t *tr
 	now := map[string]Value{}
 	var walk func(f *tree.Folder, path string)
 	walk = func(f *tree.Folder, path string) {
-		now[path] = Value{Size: f.Size, SharedBytes: f.SharedBytes}
+		now[path] = Value{Size: f.Size, SharedBytes: f.SharedBytes, SingleBytes: f.SingleBytes}
 		for _, c := range f.Folders {
 			if path == "" {
 				walk(c, c.Name)
@@ -88,9 +107,9 @@ func (s *Store) AfterScan(ctx context.Context, tx *sql.Tx, done scan.Done, t *tr
 	if err != nil {
 		return fmt.Errorf("history: %w", err)
 	}
-	upsert, err := tx.PrepareContext(ctx, `INSERT INTO folder_history (folder_id, day, size, shared_bytes)
-		VALUES (?, ?, ?, ?) ON CONFLICT (folder_id, day) DO UPDATE
-		SET size = excluded.size, shared_bytes = excluded.shared_bytes`)
+	upsert, err := tx.PrepareContext(ctx, `INSERT INTO folder_history (folder_id, day, size, shared_bytes, single_bytes)
+		VALUES (?, ?, ?, ?, ?) ON CONFLICT (folder_id, day) DO UPDATE
+		SET size = excluded.size, shared_bytes = excluded.shared_bytes, single_bytes = excluded.single_bytes`)
 	if err != nil {
 		return err
 	}
@@ -112,7 +131,7 @@ func (s *Store) AfterScan(ctx context.Context, tx *sql.Tx, done scan.Done, t *tr
 		var err error
 		switch changeOn(k.before, k.today, v, present) {
 		case writeRow:
-			_, err = upsert.ExecContext(ctx, k.id, today, v.Size, v.SharedBytes)
+			_, err = upsert.ExecContext(ctx, k.id, today, v.Size, v.SharedBytes, v.SingleBytes)
 		case removeRow:
 			_, err = remove.ExecContext(ctx, k.id, today)
 		}
@@ -130,11 +149,11 @@ func (s *Store) AfterScan(ctx context.Context, tx *sql.Tx, done scan.Done, t *tr
 		if err != nil {
 			return err
 		}
-		if _, err := upsert.ExecContext(ctx, id, today, v.Size, v.SharedBytes); err != nil {
+		if _, err := upsert.ExecContext(ctx, id, today, v.Size, v.SharedBytes, v.SingleBytes); err != nil {
 			return fmt.Errorf("history: %w", err)
 		}
 	}
-	return nil
+	return recordLinks(ctx, tx, today, t)
 }
 
 // stored is what History holds for one Folder around today.
@@ -147,7 +166,8 @@ type stored struct {
 // latest reads, for every Folder History knows, its last row before today
 // and its row for today.
 func latest(ctx context.Context, tx *sql.Tx, today Day) (map[string]stored, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT f.id, f.path, b.size, b.shared_bytes, t.size, t.shared_bytes
+	rows, err := tx.QueryContext(ctx, `SELECT f.id, f.path, b.size, b.shared_bytes, b.single_bytes,
+			t.size, t.shared_bytes, t.single_bytes
 		FROM folders f
 		LEFT JOIN folder_history b ON b.folder_id = f.id
 			AND b.day = (SELECT max(day) FROM folder_history WHERE folder_id = f.id AND day < ?1)
@@ -159,19 +179,19 @@ func latest(ctx context.Context, tx *sql.Tx, today Day) (map[string]stored, erro
 	out := map[string]stored{}
 	for rows.Next() {
 		var (
-			path           string
-			k              stored
-			bSize, bShared sql.NullInt64
-			tSize, tShared sql.NullInt64
+			path                    string
+			k                       stored
+			bSize, bShared, bSingle sql.NullInt64
+			tSize, tShared, tSingle sql.NullInt64
 		)
-		if err := rows.Scan(&k.id, &path, &bSize, &bShared, &tSize, &tShared); err != nil {
+		if err := rows.Scan(&k.id, &path, &bSize, &bShared, &bSingle, &tSize, &tShared, &tSingle); err != nil {
 			return nil, err
 		}
 		if bSize.Valid {
-			k.before = &Value{Size: bSize.Int64, SharedBytes: bShared.Int64}
+			k.before = &Value{Size: bSize.Int64, SharedBytes: bShared.Int64, SingleBytes: bSingle.Int64}
 		}
 		if tSize.Valid {
-			k.today = &Value{Size: tSize.Int64, SharedBytes: tShared.Int64}
+			k.today = &Value{Size: tSize.Int64, SharedBytes: tShared.Int64, SingleBytes: tSingle.Int64}
 		}
 		out[path] = k
 	}
@@ -190,7 +210,7 @@ func (s *Store) Read(ctx context.Context, paths []string, from Day) (map[string]
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT f.path, h.day, h.size, h.shared_bytes
+	rows, err := s.db.QueryContext(ctx, `SELECT f.path, h.day, h.size, h.shared_bytes, h.single_bytes
 		FROM json_each(?1) p
 		JOIN folders f ON f.path = p.value
 		JOIN folder_history h ON h.folder_id = f.id
@@ -206,7 +226,7 @@ func (s *Store) Read(ctx context.Context, paths []string, from Day) (map[string]
 			path string
 			r    Row[Value]
 		)
-		if err := rows.Scan(&path, &r.Day, &r.Value.Size, &r.Value.SharedBytes); err != nil {
+		if err := rows.Scan(&path, &r.Day, &r.Value.Size, &r.Value.SharedBytes, &r.Value.SingleBytes); err != nil {
 			return nil, fmt.Errorf("history: %w", err)
 		}
 		series := out[path]
