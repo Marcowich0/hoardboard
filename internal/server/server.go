@@ -55,6 +55,12 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 		MountInfo: cfg.MountInfo,
 		AfterScan: []scan.AfterScan{s.history.AfterScan},
 	})
+	if err == nil && !cfg.NoSchedule {
+		err = s.scans.Schedule(context.Background(), cfg.ScanInterval)
+		if err != nil {
+			s.scans.Close()
+		}
+	}
 	if err != nil {
 		d.Close()
 		return nil, err
@@ -70,7 +76,7 @@ func (s *Server) Handler() http.Handler {
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.mux))
 }
 
-// Close stops a running Scan and closes the database.
+// Close stops the schedule and a running Scan, and closes the database.
 func (s *Server) Close() error {
 	s.scans.Close()
 	return s.db.Close()
