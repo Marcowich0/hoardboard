@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Marcowich0/hoardboard/internal/category"
 	"github.com/Marcowich0/hoardboard/internal/clock"
 	"github.com/Marcowich0/hoardboard/internal/config"
 	"github.com/Marcowich0/hoardboard/internal/db"
@@ -23,6 +24,7 @@ type Server struct {
 	db    *sql.DB
 	inv   *inventory.Inventory
 	scans *scan.Scanner
+	cats  *category.Store
 	mux   *http.ServeMux
 }
 
@@ -39,6 +41,10 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, log: log, clock: c, db: d, mux: http.NewServeMux(),
 		inv: inventory.New(cfg.MountRoot, cfg.StatusDir)}
+	if s.cats, err = category.Open(context.Background(), d); err != nil {
+		d.Close()
+		return nil, err
+	}
 	s.scans, err = scan.New(context.Background(), scan.Config{
 		DB:        d,
 		Inventory: s.inv,
