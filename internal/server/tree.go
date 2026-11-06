@@ -108,7 +108,7 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no folder "+path)
 		return
 	}
-	change, err := s.changes(r.Context(), f, path, days)
+	change, err := s.changes(r.Context(), f, days)
 	if err != nil {
 		s.log.Error("tree", "err", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -119,11 +119,12 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		s.categoryError(w, err)
 		return
 	}
+	v := treeView{t: t, change: change, assigned: assigned}
 	writeJSON(w, http.StatusOK, treeJSON{
 		Path:     path,
 		Period:   period,
-		Folder:   folderInfoJSON(t, f, path, change, assigned),
-		Children: childrenJSON(t, f, path, change, assigned),
+		Folder:   v.folderInfo(f),
+		Children: v.children(f),
 	})
 }
 
@@ -134,7 +135,7 @@ type changeFunc func(path string, size int64) *int64
 // changes reads, from History, how f and its subfolders changed over the
 // last days days: their Size from the latest Scan minus their Size then (zero
 // for a Folder that didn't exist then).
-func (s *Server) changes(ctx context.Context, f *tree.Folder, path string, days int) (changeFunc, error) {
+func (s *Server) changes(ctx context.Context, f *tree.Folder, days int) (changeFunc, error) {
 	start, ok, err := s.history.Start(ctx)
 	if err != nil {
 		return nil, err
@@ -143,10 +144,11 @@ func (s *Server) changes(ctx context.Context, f *tree.Folder, path string, days 
 	if !ok || then < start {
 		return func(string, int64) *int64 { return nil }, nil
 	}
+	path := f.Path()
 	paths := make([]string, 0, len(f.Folders)+1)
 	paths = append(paths, path)
 	for _, c := range f.Folders {
-		paths = append(paths, joinPath(path, c.Name))
+		paths = append(paths, tree.Join(path, c.Name))
 	}
 	series, err := s.history.Read(ctx, paths, then)
 	if err != nil {
@@ -171,26 +173,35 @@ func validPath(p string) bool {
 	return true
 }
 
-func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string, change changeFunc, assigned category.Assignments) folderJSON {
+// treeView is what a Folder's answer is built from: the latest Scan's tree,
+// the Folders' change over the period, and the Assignments.
+type treeView struct {
+	t        *tree.Tree
+	change   changeFunc
+	assigned category.Assignments
+}
+
+func (v treeView) folderInfo(f *tree.Folder) folderJSON {
+	path := f.Path()
 	var c *folderCategoryJSON
-	if id, at, ok := assigned.Of(path); ok {
+	if id, at, ok := v.assigned.Of(path); ok {
 		c = &folderCategoryJSON{CategoryID: id, AssignedPath: at}
 	}
 	return folderJSON{
 		Path:        path,
 		Name:        f.Name,
 		Size:        f.Size,
-		Change:      change(path, f.Size),
+		Change:      v.change(path, f.Size),
 		Items:       f.Items,
 		SharedBytes: f.SharedBytes,
-		Disks:       disksJSON(t, f),
+		Disks:       disksJSON(v.t, f),
 		Category:    c,
 	}
 }
 
-// childrenJSON lists f's subfolders, then its files, each largest first.
-func childrenJSON(t *tree.Tree, f *tree.Folder, path string, change changeFunc, assigned category.Assignments) []any {
-	join := func(name string) string { return joinPath(path, name) }
+// children lists f's subfolders, then its files, each largest first.
+func (v treeView) children(f *tree.Folder) []any {
+	path := f.Path()
 	folders := slices.Clone(f.Folders)
 	slices.SortStableFunc(folders, func(a, b *tree.Folder) int { return cmp.Compare(b.Size, a.Size) })
 	files := slices.Clone(f.Files)
@@ -198,31 +209,37 @@ func childrenJSON(t *tree.Tree, f *tree.Folder, path string, change changeFunc, 
 
 	out := make([]any, 0, len(folders)+len(files))
 	for _, c := range folders {
+		p := tree.Join(path, c.Name)
 		out = append(out, folderEntryJSON{
 			Kind:        "folder",
 			Name:        c.Name,
-			Path:        join(c.Name),
+			Path:        p,
 			Size:        c.Size,
-			Change:      change(join(c.Name), c.Size),
+			Change:      v.change(p, c.Size),
 			Items:       c.Items,
 			SharedBytes: c.SharedBytes,
-			Disks:       disksJSON(t, c),
-			CategoryID:  categoryOf(assigned, join(c.Name)),
+			Disks:       disksJSON(v.t, c),
+			CategoryID:  categoryOf(v.assigned, p),
 		})
 	}
-	for _, file := range files {
-		out = append(out, fileEntryJSON{
-			Kind:  "file",
-			Name:  file.Name,
-			Path:  join(file.Name),
-			Size:  file.Bytes,
-			Disk:  t.Disks[file.Disk],
-			Links: file.Links,
-			// A file is in its Folder's category.
-			CategoryID: categoryOf(assigned, path),
-		})
+	for i := range files {
+		out = append(out, v.file(&files[i], path))
 	}
 	return out
+}
+
+// file is the entry of one name of a file, in the Folder at dir.
+func (v treeView) file(file *tree.File, dir string) fileEntryJSON {
+	return fileEntryJSON{
+		Kind:  "file",
+		Name:  file.Name,
+		Path:  tree.Join(dir, file.Name),
+		Size:  file.Bytes,
+		Disk:  v.t.Disks[file.Disk],
+		Links: file.Links,
+		// A file is in its Folder's category.
+		CategoryID: categoryOf(v.assigned, dir),
+	}
 }
 
 // categoryOf is the effective category of the Folder at path, nil when it
