@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"github.com/Marcowich0/hoardboard/internal/config"
 	"github.com/Marcowich0/hoardboard/internal/db"
 	"github.com/Marcowich0/hoardboard/internal/inventory"
+	"github.com/Marcowich0/hoardboard/internal/scan"
 )
 
 // Server holds what the handlers share.
@@ -20,6 +22,7 @@ type Server struct {
 	clock clock.Clock
 	db    *sql.DB
 	inv   *inventory.Inventory
+	scans *scan.Scanner
 	mux   *http.ServeMux
 }
 
@@ -36,6 +39,17 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, log: log, clock: c, db: d, mux: http.NewServeMux(),
 		inv: inventory.New(cfg.MountRoot, cfg.StatusDir)}
+	s.scans, err = scan.New(context.Background(), scan.Config{
+		DB:        d,
+		Inventory: s.inv,
+		Clock:     c,
+		Log:       log,
+		MountInfo: cfg.MountInfo,
+	})
+	if err != nil {
+		d.Close()
+		return nil, err
+	}
 	s.routes()
 	return s, nil
 }
@@ -47,5 +61,8 @@ func (s *Server) Handler() http.Handler {
 	return securityHeaders(http.NewCrossOriginProtection().Handler(s.mux))
 }
 
-// Close closes the database.
-func (s *Server) Close() error { return s.db.Close() }
+// Close stops a running Scan and closes the database.
+func (s *Server) Close() error {
+	s.scans.Close()
+	return s.db.Close()
+}

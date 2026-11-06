@@ -2,7 +2,7 @@
 // ./index.ts once the server has it.
 
 import { ApiError } from './errors.ts'
-import type { HealthReport, LiveOverview } from './types.ts'
+import type { HealthReport, LiveOverview, Period, ScanRequestResult, ScanStatus, Tree } from './types.ts'
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -46,3 +46,13 @@ export async function health(): Promise<HealthReport> {
 
 /** GET /api/overview: the Disks, parity and totals, live from the filesystems. */
 export const overview = () => getJSON<LiveOverview>('/api/overview')
+
+/** GET /api/tree: a Folder of the latest Scan, its subfolders and its files. */
+export const tree = (path: string, period: Period) =>
+  getJSON<Tree>(`/api/tree?${new URLSearchParams({ path, period }).toString()}`)
+
+/** GET /api/scan: whether a Scan runs, and the last one that finished. */
+export const scanStatus = () => getJSON<ScanStatus>('/api/scan')
+
+/** POST /api/scan: starts a Scan, or joins the one already running. */
+export const scanNow = () => sendJSON<ScanRequestResult>('POST', '/api/scan')

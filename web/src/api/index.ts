@@ -22,7 +22,9 @@ export const api: Api = {
     const [live, made] = await Promise.all([http.overview(), fake.overview()])
     return { ...made, ...live }
   },
-  tree: fake.tree,
+  // Real folders, files, Size, items and bytes per Disk. Change, Shared
+  // bytes and categories come with later tickets (null, 0 and null until then).
+  tree: http.tree,
   largest: fake.largest,
   folderHistory: fake.folderHistory,
   categoryHistory: fake.categoryHistory,
@@ -34,8 +36,8 @@ export const api: Api = {
   assign: fake.assign,
   unassign: fake.unassign,
   repoint: fake.repoint,
-  scanStatus: fake.scanStatus,
-  scanNow: fake.scanNow,
+  scanStatus: http.scanStatus, // real
+  scanNow: http.scanNow, // real
 }
 
 export { ApiError } from './errors.ts'
