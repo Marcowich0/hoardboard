@@ -1,0 +1,15 @@
+version: 2
+updates:
+  # The actions in .github/workflows are pinned to commit SHAs with their
+  # release in a comment; Dependabot moves both. Grouped into one weekly PR,
+  # and a release has to be a week old first, so a hijacked one has time to
+  # be found and pulled before it is proposed.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ['*']

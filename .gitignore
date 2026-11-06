@@ -1,0 +1,6 @@
+# Local build output.
+/hoardboard
+/dist/
+
+# Claude Code local state and worktrees.
+.claude/

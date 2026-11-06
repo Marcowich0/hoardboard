@@ -1,0 +1,12 @@
+@import 'tailwindcss';
+
+/* Dark is the default; <html data-theme="light"> switches (see theme.ts). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+:root {
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
