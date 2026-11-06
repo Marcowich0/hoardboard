@@ -13,8 +13,8 @@ import (
 type growth struct {
 	Today    string `json:"today"`
 	Forecast *struct {
-		BytesPerMonth int64  `json:"bytesPerMonth"`
-		FullOn        string `json:"fullOn"`
+		BytesPerMonth int64   `json:"bytesPerMonth"`
+		FullOn        *string `json:"fullOn"`
 	} `json:"forecast"`
 	ForecastDays int `json:"forecastDays"`
 }
@@ -50,6 +50,14 @@ func line(n int, first, perDay int64) []int64 {
 	return out
 }
 
+// fullOn is the forecast's day, "" if it has none.
+func (g growth) fullOn() string {
+	if g.Forecast == nil || g.Forecast.FullOn == nil {
+		return ""
+	}
+	return *g.Forecast.FullOn
+}
+
 func overviewGrowth(t *testing.T, app *apitest.App) growth {
 	t.Helper()
 	var got growth
@@ -66,7 +74,7 @@ func TestAWeekOfGrowthGivesAGrowthRateAndTheDayTheArrayIsFull(t *testing.T) {
 	// 10 GiB a day, an average month being 365.25/12 days. On 2026-03-08
 	// 6.5 TiB + 60 GiB of 9 TiB is used: 2500 GiB left, 250 days.
 	if got.Today != "2026-03-08" || got.ForecastDays != 7 || got.Forecast == nil ||
-		got.Forecast.BytesPerMonth != 326820167680 || got.Forecast.FullOn != "2026-11-13" {
+		got.Forecast.BytesPerMonth != 326820167680 || got.fullOn() != "2026-11-13" {
 		t.Fatalf("overview = %+v (forecast %+v), want 7 days, 326820167680 bytes a month, full on 2026-11-13",
 			got, got.Forecast)
 	}
@@ -86,16 +94,23 @@ func TestSixDaysAreTooFewForAForecast(t *testing.T) {
 	}
 }
 
-func TestAFlatOrShrinkingArrayHasNoForecast(t *testing.T) {
+func TestAFlatOrShrinkingArrayHasAGrowthRateButNoFullDay(t *testing.T) {
 	t.Parallel()
-	for name, perDay := range map[string]int64{"flat": 0, "shrinking": -10 * gib} {
+	for name, tc := range map[string]struct{ perDay, perMonth int64 }{
+		"flat": {0, 0},
+		// -10 GiB a day, an average month being 365.25/12 days.
+		"shrinking": {-10 * gib, -326820167680},
+	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			app := apitest.Start(t)
-			scanDays(t, app, line(10, 3*tib, perDay))
+			scanDays(t, app, line(10, 3*tib, tc.perDay))
 
-			if got := overviewGrowth(t, app); got.Forecast != nil || got.ForecastDays != 10 {
-				t.Fatalf("forecast %+v over %d days, want none over 10", got.Forecast, got.ForecastDays)
+			got := overviewGrowth(t, app)
+			if got.ForecastDays != 10 || got.Forecast == nil || got.Forecast.BytesPerMonth != tc.perMonth ||
+				got.Forecast.FullOn != nil {
+				t.Fatalf("forecast %+v over %d days, want %d bytes a month, no full day, over 10 days",
+					got.Forecast, got.ForecastDays, tc.perMonth)
 			}
 		})
 	}
@@ -116,7 +131,7 @@ func TestDaysWithoutAScanCarryTheLastUsedSpaceForward(t *testing.T) {
 	// 190645097813.3 bytes a month. On 2026-03-09 the line is at 110/3 GiB:
 	// 2560 - 110/3 GiB left, 432.6 days, so full on day 433.
 	if got.ForecastDays != 8 || got.Forecast == nil || got.Forecast.BytesPerMonth != 190645097813 ||
-		got.Forecast.FullOn != "2027-05-16" {
+		got.fullOn() != "2027-05-16" {
 		t.Fatalf("forecast %+v over %d days, want 190645097813 bytes a month, full on 2027-05-16, over 8 days",
 			got.Forecast, got.ForecastDays)
 	}
@@ -134,7 +149,7 @@ func TestOnlyTheLast90DaysAreFitted(t *testing.T) {
 	// Only the line counts: 10 GiB a day, 6.5 TiB + 890 GiB used of 9 TiB on
 	// 2026-06-09, 1670 GiB left, 167 days.
 	if got.Today != "2026-06-09" || got.ForecastDays != 90 || got.Forecast == nil ||
-		got.Forecast.BytesPerMonth != 326820167680 || got.Forecast.FullOn != "2026-11-23" {
+		got.Forecast.BytesPerMonth != 326820167680 || got.fullOn() != "2026-11-23" {
 		t.Fatalf("overview = %+v (forecast %+v), want 90 days, 326820167680 bytes a month, full on 2026-11-23",
 			got, got.Forecast)
 	}
@@ -163,7 +178,7 @@ func TestTheLastScanOfADayGivesTheDaysUsedSpace(t *testing.T) {
 	got := overviewGrowth(t, app)
 	// As with one Scan a day: 10 GiB a day, full in 250 days.
 	if got.ForecastDays != 7 || got.Forecast == nil ||
-		got.Forecast.BytesPerMonth != 326820167680 || got.Forecast.FullOn != "2026-11-13" {
+		got.Forecast.BytesPerMonth != 326820167680 || got.fullOn() != "2026-11-13" {
 		t.Fatalf("forecast %+v over %d days, want 326820167680 bytes a month, full on 2026-11-13, over 7 days",
 			got.Forecast, got.ForecastDays)
 	}
@@ -187,9 +202,14 @@ func TestADiskTakenOutOfTheArrayNoLongerCounts(t *testing.T) {
 		app.Scan(t)
 	}
 
-	// Used space fell by 1 TiB on the last day: no forecast. Had disk2's
-	// last 1 TiB been carried forward, the array would grow.
-	if got := overviewGrowth(t, app); got.Forecast != nil || got.ForecastDays != 7 {
-		t.Fatalf("forecast %+v over %d days, want none over 7", got.Forecast, got.ForecastDays)
+	// Used space fell by 1 TiB on the last day: the line falls by 698/7 GiB
+	// a day, 169963/56 GiB (3258863957723.4 bytes) a month, and never
+	// reaches the size. Had disk2's last 1 TiB been carried forward, the
+	// array would grow.
+	got := overviewGrowth(t, app)
+	if got.ForecastDays != 7 || got.Forecast == nil || got.Forecast.BytesPerMonth != -3258863957723 ||
+		got.Forecast.FullOn != nil {
+		t.Fatalf("forecast %+v over %d days, want -3258863957723 bytes a month, no full day, over 7 days",
+			got.Forecast, got.ForecastDays)
 	}
 }

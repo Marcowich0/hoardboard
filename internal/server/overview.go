@@ -31,7 +31,8 @@ type overviewResponse struct {
 	Trend trendJSON `json:"trend"`
 	// Forecast is the growth rate and the day the array is full, fitted to
 	// the last 90 days of total Used space; null with fewer than 7 daily
-	// points, or when Used space isn't growing (see forecast.go).
+	// points. Its day is null when Used space isn't growing (see
+	// forecast.go).
 	Forecast *forecastJSON `json:"forecast"`
 	// ForecastDays is the daily points of total Used space the fit had.
 	ForecastDays int `json:"forecastDays"`

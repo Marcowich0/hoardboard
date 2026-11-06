@@ -29,7 +29,7 @@ export interface Overview {
   donut: UsedSplit
   /** The same split per day, oldest first. */
   trend: Trend
-  /** Null with fewer than 7 days of History, or when Used space isn't growing. */
+  /** Null with fewer than 7 days of History. */
   forecast: Forecast | null
   /** The daily points of total Used space the forecast was fitted to (at most 90). */
   forecastDays: number
@@ -82,8 +82,8 @@ export interface Trend {
 export interface Forecast {
   /** The fitted growth over the last 90 days, per average month (365.25/12 days). */
   bytesPerMonth: number
-  /** The day the fitted line reaches the total size. */
-  fullOn: string
+  /** The day the fitted line reaches the total size; null when it is flat or falling. */
+  fullOn: string | null
 }
 
 // GET /api/tree?path=&period= ------------------------------------------------
