@@ -3,7 +3,9 @@
 // tree.Tree of Share paths, records the Scan in the scans table and saves the
 // tree as the current snapshot.
 //
-// At most one Scan runs at a time: Start while one runs joins it. The latest
+// At most one Scan runs at a time: Start while one runs joins it. Otherwise,
+// while Unraid does heavy array work (a parity check, a rebuild, the mover),
+// Start records a skipped Scan with the reason instead of walking. The latest
 // tree stays in memory for the API (Tree), and is loaded from the snapshot
 // at startup, so the Explorer works before the first Scan after a restart.
 package scan
@@ -62,12 +64,24 @@ func (r *Run) Done() <-chan struct{} { return r.done }
 // Err is why the Scan failed, nil if it finished. Call it after Done.
 func (r *Run) Err() error { return r.err }
 
+// Skip is a Scan that was skipped because of array work.
+type Skip struct {
+	ID     int64
+	At     time.Time
+	Reason string // inventory.ArrayWork's reason
+}
+
 // Status is what the Scanner is doing and did.
 type Status struct {
 	// Running is the Scan that runs now, nil if none.
 	Running *Run
 	// Last is the latest Scan that finished, nil if none has.
 	Last *Done
+	// Skipped is the latest skipped Scan if it came after Last, else nil.
+	Skipped *Skip
+	// Next is when the next scheduled Scan is due, zero while none is
+	// scheduled (see Schedule).
+	Next time.Time
 }
 
 // Scanner runs Scans and holds the latest tree.
@@ -79,7 +93,9 @@ type Scanner struct {
 	mu      sync.Mutex
 	running *Run
 	last    *Done
+	skipped *Skip
 	tree    *tree.Tree
+	sched   *schedule
 }
 
 // New prepares the scan tables and loads the saved snapshot, if any.
@@ -97,6 +113,11 @@ func New(ctx context.Context, cfg Config) (*Scanner, error) {
 	} else if ok {
 		s.last = &done
 	}
+	if skip, ok, err := lastSkipped(ctx, cfg.DB); err != nil {
+		return nil, fmt.Errorf("scan store: %w", err)
+	} else if ok {
+		s.skipped = &skip
+	}
 	t, err := loadSnapshot(ctx, cfg.DB)
 	if err != nil {
 		// Not fatal: the next Scan makes a new one.
@@ -106,11 +127,14 @@ func New(ctx context.Context, cfg Config) (*Scanner, error) {
 	return s, nil
 }
 
-// Close stops a running Scan and waits for it to end.
+// Close stops the schedule and a running Scan, and waits for it to end.
 func (s *Scanner) Close() {
 	s.cancel()
 	s.mu.Lock()
 	r := s.running
+	if s.sched != nil && s.sched.timer != nil {
+		s.sched.timer.Stop()
+	}
 	s.mu.Unlock()
 	if r != nil {
 		<-r.done
@@ -128,29 +152,50 @@ func (s *Scanner) Tree() *tree.Tree {
 func (s *Scanner) Status() Status {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return Status{Running: s.running, Last: s.last}
+	st := Status{Running: s.running, Last: s.last}
+	if s.skipped != nil && (s.last == nil || s.skipped.ID > s.last.ID) {
+		st.Skipped = s.skipped
+	}
+	if s.sched != nil {
+		st.Next = s.sched.next
+	}
+	return st
 }
 
 // Start starts a Scan, or returns the running one: concurrent requests share
-// one Scan.
-func (s *Scanner) Start() (*Run, error) {
+// one Scan. While array work is in progress it starts none: it records the
+// skip and returns it instead, with a nil Run.
+func (s *Scanner) Start() (*Run, *Skip, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.running != nil {
-		return s.running, nil
+		return s.running, nil, nil
 	}
 	if err := s.ctx.Err(); err != nil {
-		return nil, errors.New("scanner is closed")
+		return nil, nil, errors.New("scanner is closed")
 	}
-	started := s.cfg.Clock.Now()
-	id, err := insertRunning(s.ctx, s.cfg.DB, started)
+	reason, err := s.cfg.Inventory.ArrayWork()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	r := &Run{ID: id, Started: started, done: make(chan struct{})}
+	now := s.cfg.Clock.Now()
+	if reason != "" {
+		id, err := insertSkipped(s.ctx, s.cfg.DB, now, reason)
+		if err != nil {
+			return nil, nil, err
+		}
+		s.skipped = &Skip{ID: id, At: now, Reason: reason}
+		s.cfg.Log.Info("scan skipped", "scan", id, "reason", reason)
+		return nil, s.skipped, nil
+	}
+	id, err := insertRunning(s.ctx, s.cfg.DB, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	r := &Run{ID: id, Started: now, done: make(chan struct{})}
 	s.running = r
 	go s.run(r)
-	return r, nil
+	return r, nil, nil
 }
 
 func (s *Scanner) run(r *Run) {

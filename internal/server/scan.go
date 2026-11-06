@@ -20,9 +20,10 @@ func init() {
 type scanStatusJSON struct {
 	Running *scanRunningJSON `json:"running"`
 	Last    *scanLastJSON    `json:"last"`
-	// Skipped and Next come with the scheduler; always null for now.
+	// Skipped is the latest skipped Scan, if it came after Last.
 	Skipped *scanSkippedJSON `json:"skipped"`
-	Next    *string          `json:"next"`
+	// Next is when the next scheduled Scan is due.
+	Next *string `json:"next"`
 }
 
 type scanRunningJSON struct {
@@ -46,7 +47,7 @@ type scanSkippedJSON struct {
 type scanRequestJSON struct {
 	Status scanStatusJSON `json:"status"`
 	// Started is true when a Scan runs (or ran) for the request, including
-	// one it joined.
+	// one it joined; false when it was skipped (see Status.Skipped).
 	Started bool `json:"started"`
 }
 
@@ -56,7 +57,8 @@ func (s *Server) handleScanStatus(w http.ResponseWriter, r *http.Request) {
 
 // handleScanNow starts a Scan, or joins the one that runs, and answers at
 // once with the status. With ?wait=true it answers once that Scan has ended:
-// 200 if it finished, 500 with the reason if it failed.
+// 200 if it finished, 500 with the reason if it failed. During array work it
+// starts none and answers 200 at once, started false.
 func (s *Server) handleScanNow(w http.ResponseWriter, r *http.Request) {
 	wait := false
 	if v := r.URL.Query().Get("wait"); v != "" {
@@ -67,10 +69,14 @@ func (s *Server) handleScanNow(w http.ResponseWriter, r *http.Request) {
 		}
 		wait = b
 	}
-	run, err := s.scans.Start()
+	run, skip, err := s.scans.Start()
 	if err != nil {
 		s.log.Error("scan", "err", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if skip != nil {
+		writeJSON(w, http.StatusOK, scanRequestJSON{Status: statusJSON(s.scans.Status()), Started: false})
 		return
 	}
 	if wait {
@@ -99,6 +105,13 @@ func statusJSON(st scan.Status) scanStatusJSON {
 			FinishedAt: timeJSON(d.Finished),
 			DurationMs: d.Finished.Sub(d.Started).Milliseconds(),
 		}
+	}
+	if k := st.Skipped; k != nil {
+		out.Skipped = &scanSkippedJSON{At: timeJSON(k.At), Reason: k.Reason}
+	}
+	if !st.Next.IsZero() {
+		next := timeJSON(st.Next)
+		out.Next = &next
 	}
 	return out
 }

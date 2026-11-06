@@ -42,8 +42,17 @@ func TestAFolderSpreadOverDisksIsOneFolder(t *testing.T) {
   and `SetDisk` change it. As on the real server, `fsMountpoint` is always
   `/mnt/<name>`: the app finds a Disk at `<mount root>/<name>`.
 - **`app.Clock`**: a fake clock at `apitest.Epoch`; `Advance` and `Set` move it.
+  Timers set on it (the scan schedule's) fire inside `Advance`/`Set`, in
+  order, each with the clock at its time, so the test sees their effect as
+  soon as the call returns.
+- **No schedule** unless `apitest.WithSchedule()`: by default a test server
+  never scans on its own, however far the clock moves. With it, the server
+  schedules Scans every `HOARDBOARD_SCAN_INTERVAL` on the fake clock, and
+  starts one at once if none ran in the last interval (so pair it with
+  `HoldScans` to see that one running).
 - **`app.Scan(t)`**: runs a Scan through `POST /api/scan?wait=true`, which
-  answers once the Scan has ended.
+  answers once the Scan has ended, and fails the test if it was skipped for
+  array work. To check a skip, `PostJSON` to `/api/scan` and read `started`.
 - **`app.Data`**: a fresh data folder. `app.Restart(t)` restarts the server over
   the same mount, status, clock and data.
 

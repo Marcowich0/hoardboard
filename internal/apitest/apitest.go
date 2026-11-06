@@ -17,7 +17,8 @@
 //   - Status: a temporary Unraid status folder for an idle, started array
 //     listing those Disks (NewStatus);
 //   - Clock: a Fake clock at Epoch;
-//   - Data: a fresh temporary data folder.
+//   - Data: a fresh temporary data folder;
+//   - no scheduled Scans: only the test starts them (see WithSchedule).
 //
 // The server is configured through config.FromEnv, with the HOARDBOARD_*
 // variables pointing at those folders, so the tests also cover how the
@@ -70,6 +71,7 @@ type options struct {
 	data   string
 	env    map[string]string
 	logs   io.Writer
+	sched  bool
 }
 
 // WithMount starts the server over m instead of a fresh NewMount.
@@ -95,6 +97,11 @@ func WithEnv(key, value string) Option {
 		o.env[key] = value
 	}
 }
+
+// WithSchedule runs scheduled Scans (every HOARDBOARD_SCAN_INTERVAL) on the
+// fake clock, as in production. Without it the server scans only when asked
+// to, so that moving the clock starts nothing.
+func WithSchedule() Option { return func(o *options) { o.sched = true } }
 
 // WithLogs sends the server's logs to w (they are discarded by default).
 // t.Output() is a good choice while debugging a test.
@@ -141,6 +148,7 @@ func (a *App) start(t testing.TB) {
 	cfg.Revision = Revision
 	cfg.Clock = a.Clock
 	cfg.MountInfo = a.Mount.mountInfo
+	cfg.NoSchedule = !a.opts.sched
 
 	logs := a.opts.logs
 	if logs == nil {
@@ -266,8 +274,15 @@ func (a *App) expectJSON(t testing.TB, resp *http.Response, wantStatus int, out 
 }
 
 // Scan runs a Scan through the API, POST /api/scan?wait=true, and fails the
-// test unless it finished. It joins a Scan that is already running.
+// test unless it finished (rather than failing, or being skipped for array
+// work). It joins a Scan that is already running.
 func (a *App) Scan(t testing.TB) {
 	t.Helper()
-	a.PostJSON(t, "/api/scan?wait=true", nil, http.StatusOK, nil)
+	var got struct {
+		Started bool `json:"started"`
+	}
+	a.PostJSON(t, "/api/scan?wait=true", nil, http.StatusOK, &got)
+	if !got.Started {
+		t.Fatal("POST /api/scan: the Scan was skipped")
+	}
 }
