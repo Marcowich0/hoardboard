@@ -56,7 +56,9 @@ export interface ParityDisk {
 
 /**
  * Used space in parts: a byte hardlinked into several categories goes to the
- * highest-ranked one, so the parts never overlap.
+ * highest-ranked one, so the parts never overlap. They add up to Used space
+ * exactly: when the Scan saw more, the categories and Uncategorized shrink in
+ * proportion and Unaccounted is 0.
  */
 export interface UsedSplit {
   /** Every category, in Rank order. */
@@ -68,8 +70,8 @@ export interface UsedSplit {
 /**
  * Used space per day from the first Scan to today, split like the donut under
  * today's Assignments and Rank: each day's parts sum to that day's Used space,
- * the last day's are the donut. A day's Unaccounted is 0 when its Used space
- * wasn't recorded.
+ * the last day's are the donut. A day whose Used space wasn't recorded has
+ * its parts as scanned and Unaccounted 0.
  */
 export interface Trend {
   days: string[]

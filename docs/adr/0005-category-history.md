@@ -21,8 +21,10 @@ more things per day, with the same write-on-change rule as a Folder's Size
 Today's Used space is the live one, so the trend's last day is the donut. A
 past day's Used space is the total that day's last Scan recorded
 (`history.Store.TotalUsed`, from ticket #15), and that day's
-Unaccounted is `max(0, Used − scanned)`. Before Used space was recorded, a
-day's Unaccounted is 0.
+Unaccounted is `max(0, Used − scanned)`; when the Scan saw more than Used
+space, the day's parts shrink to fit it, as the donut's do
+([0007](0007-scanned-bytes-shrink-to-used-space.md)). Before Used space was
+recorded, a day's Unaccounted is 0 and its parts are as scanned.
 
 ## Why
 

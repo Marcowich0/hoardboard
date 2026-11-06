@@ -49,8 +49,11 @@ func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
 	for d, sz := range p.sizes {
 		day := p.from + history.Day(d)
 		u := used[d]
-		if day == s.today() {
+		switch {
+		case day == s.today():
 			u = liveUsed
+		case u < 0:
+			u = sz.Total() // nothing to shrink to, nothing Unaccounted
 		}
 		split := sz.Split(p.ranked, u)
 		out.Days[d] = day.String()
@@ -64,12 +67,15 @@ func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
 }
 
 // usedDaily is the Disks' total Used space on each of the n days from
-// from, as each day's last Scan recorded it; 0 on a day before Used space
-// History began (its Unaccounted is then 0).
+// from, as each day's last Scan recorded it; -1 on a day before Used space
+// History began.
 func (s *Server) usedDaily(ctx context.Context, from history.Day, n int) ([]int64, error) {
 	out := make([]int64, n)
 	if n == 0 {
 		return out, nil
+	}
+	for i := range out {
+		out[i] = -1
 	}
 	rows, err := s.history.TotalUsed(ctx, from+history.Day(n-1), n)
 	if err != nil {

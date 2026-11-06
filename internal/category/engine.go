@@ -10,6 +10,7 @@ package category
 
 import (
 	"cmp"
+	"math/bits"
 	"slices"
 	"strconv"
 	"strings"
@@ -249,7 +250,8 @@ func (s *Sizes) SharedWith(id ID) []Shared {
 }
 
 // Split is Used space in parts that never overlap: one per category, in
-// Rank order, then Uncategorized and Unaccounted.
+// Rank order, then Uncategorized and Unaccounted. The parts always add up to
+// the Used space split.
 type Split struct {
 	Categories    []Part
 	Uncategorized int64
@@ -264,36 +266,72 @@ type Part struct {
 	Bytes int64
 }
 
+// Total is every byte in the tree, each physical file once.
+func (s *Sizes) Total() int64 {
+	var n int64
+	for _, g := range s.groups {
+		n += g.bytes
+	}
+	return n
+}
+
 // Split splits used, the filesystems' Used space, for the donut. ranked is
 // every category id, highest Rank first. Bytes in several categories go to
-// the highest-Ranked of them; a category outranks Uncategorized. Unless the
-// tree holds more than used (files deleted since the Scan), the parts add
-// up to used exactly.
+// the highest-Ranked of them; a category outranks Uncategorized.
+//
+// When the tree holds more than used (files deleted since the Scan, or
+// compressed data that the Scan counts at full size), the categories and
+// Uncategorized shrink in proportion to add up to used, with Unaccounted 0
+// (docs/adr/0007-scanned-bytes-shrink-to-used-space.md).
 func (s *Sizes) Split(ranked []ID, used int64) Split {
 	pos := make(map[ID]int, len(ranked))
 	for i, id := range ranked {
 		pos[id] = i
 	}
-	owned := make([]int64, len(ranked))
-	out := Split{Categories: make([]Part, len(ranked))}
+	// parts is each category's bytes in Rank order, then Uncategorized.
+	parts := make([]int64, len(ranked)+1)
 	var accounted int64
 	for _, g := range s.groups {
 		accounted += g.bytes
-		owner := -1
+		owner := len(ranked)
 		for _, id := range g.ids {
-			if i, ok := pos[id]; ok && (owner < 0 || i < owner) {
+			if i, ok := pos[id]; ok && i < owner {
 				owner = i
 			}
 		}
-		if owner < 0 {
-			out.Uncategorized += g.bytes
-		} else {
-			owned[owner] += g.bytes
-		}
+		parts[owner] += g.bytes
+	}
+	out := Split{Categories: make([]Part, len(ranked))}
+	if accounted > used {
+		shrink(parts, accounted, max(0, used))
+	} else {
+		out.Unaccounted = used - accounted
 	}
 	for i, id := range ranked {
-		out.Categories[i] = Part{ID: id, Bytes: owned[i]}
+		out.Categories[i] = Part{ID: id, Bytes: parts[i]}
 	}
-	out.Unaccounted = max(0, used-accounted)
+	out.Uncategorized = parts[len(ranked)]
 	return out
+}
+
+// shrink scales parts, which add up to total, to add up to to (to < total):
+// each part times to/total, rounded down, and the bytes rounding leaves over
+// go to the largest part (the first of them on a tie).
+func shrink(parts []int64, total, to int64) {
+	largest := 0
+	for i, p := range parts {
+		if p > parts[largest] {
+			largest = i
+		}
+	}
+	left := to
+	for i, p := range parts {
+		// p·to can overflow int64; its high word is below total, as p and
+		// to are at most total.
+		hi, lo := bits.Mul64(uint64(p), uint64(to))
+		q, _ := bits.Div64(hi, lo, uint64(total))
+		parts[i] = int64(q)
+		left -= parts[i]
+	}
+	parts[largest] += left
 }

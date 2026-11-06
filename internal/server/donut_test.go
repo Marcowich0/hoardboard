@@ -115,3 +115,78 @@ func TestTheDonutAddsUpToUsedSpace(t *testing.T) {
 		t.Errorf("categories + uncategorized = %d, want %d", accounted, 7*unit)
 	}
 }
+
+func TestWhenTheScanSawMoreThanUsedSpaceThePartsShrinkToFitIt(t *testing.T) {
+	t.Parallel()
+	app := apitest.Start(t)
+	app.Mount.File("disk1", "data/media/movies/a.mkv", 5*unit)
+	app.Mount.File("disk2", "data/media/tv/b.mkv", 3*unit)
+	app.Mount.File("cache", "data/downloads/c.bin", 1*unit)
+	// The filesystems report 4 units used (65536 bytes) of the 9 the Scan
+	// sees (btrfs compression, say).
+	low := func() {
+		app.Mount.SetSpace("disk1", 1000*unit, 2*unit)
+		app.Mount.SetSpace("disk2", 1000*unit, 1*unit)
+		app.Mount.SetSpace("cache", 1000*unit, 1*unit)
+	}
+	low()
+	app.Scan(t) // 2026-03-02
+
+	app.Clock.Advance(day)
+	app.Mount.SetSpace("disk1", 1000*unit, 8*unit) // 12 units in all
+	app.Scan(t)                                    // 2026-03-03
+	low()                                          // and live Used space falls back to 4 units
+
+	movies := create(t, app, "Movies", "#e5484d")
+	tv := create(t, app, "TV", "#3e63dd")
+	assign(t, app, "data/media/movies", movies.ID)
+	assign(t, app, "data/media/tv", tv.ID)
+
+	// 5:3:1 of 65536 bytes is 36408.9, 21845.3 and 7281.8: each part rounded
+	// down, and the 2 bytes left over go to the largest, Movies.
+	scaled := donut{Categories: []slice{{movies.ID, 36410}, {tv.ID, 21845}}, Uncategorized: 7281}
+	got := getTrend(t, app)
+	if got.Totals.Used != 4*unit {
+		t.Fatalf("used = %d, want %d", got.Totals.Used, 4*unit)
+	}
+	if !slices.Equal(got.Donut.Categories, scaled.Categories) || got.Donut.Uncategorized != scaled.Uncategorized ||
+		got.Donut.Unaccounted != 0 || got.Donut.sum() != 4*unit {
+		t.Errorf("donut = %+v, want %+v summing to %d", got.Donut, scaled, 4*unit)
+	}
+
+	// 2026-03-02 is scaled the same way; 2026-03-03 (today, live) too.
+	want := map[int64][]int64{movies.ID: {36410, 36410}, tv.ID: {21845, 21845}}
+	for _, c := range got.Trend.Categories {
+		if !slices.Equal(c.Bytes, want[c.CategoryID]) {
+			t.Errorf("trend category %d = %v, want %v", c.CategoryID, c.Bytes, want[c.CategoryID])
+		}
+	}
+	if u := []int64{7281, 7281}; !slices.Equal(got.Trend.Uncategorized, u) {
+		t.Errorf("trend uncategorized = %v, want %v", got.Trend.Uncategorized, u)
+	}
+	if u := []int64{0, 0}; !slices.Equal(got.Trend.Unaccounted, u) {
+		t.Errorf("trend unaccounted = %v, want %v", got.Trend.Unaccounted, u)
+	}
+}
+
+func TestEachDayOfTheTrendShrinksToFitItsOwnUsedSpace(t *testing.T) {
+	t.Parallel()
+	app := apitest.Start(t)
+	app.Mount.File("disk1", "data/media/movies/a.mkv", 5*unit)
+	app.Mount.SetSpace("disk1", 1000*unit, 1*unit)
+	app.Mount.SetSpace("disk2", 1000*unit, 1*unit)
+	app.Mount.SetSpace("cache", 1000*unit, 1*unit)
+	app.Scan(t) // 2026-03-02: 3 units used, 5 seen
+
+	app.Clock.Advance(day)
+	app.Mount.SetSpace("disk1", 1000*unit, 10*unit)
+	app.Scan(t) // 2026-03-03: 12 units used, 5 seen
+	movies := create(t, app, "Movies", "#e5484d")
+	assign(t, app, "data/media/movies", movies.ID)
+
+	got := getTrend(t, app)
+	if len(got.Trend.Categories) != 1 || !slices.Equal(got.Trend.Categories[0].Bytes, []int64{3 * unit, 5 * unit}) ||
+		!slices.Equal(got.Trend.Unaccounted, []int64{0, 7 * unit}) {
+		t.Errorf("trend = %+v, want Movies 3 then 5 units, Unaccounted 0 then 7", got.Trend)
+	}
+}
