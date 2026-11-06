@@ -110,11 +110,13 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		resp.Totals.Used += js.Used
 		resp.Totals.Free += js.Free
 	}
-	if resp.Donut, err = s.donut(r.Context(), resp.Totals.Used); err == nil {
+	rk, err := s.readRanking(r.Context())
+	if err == nil {
+		resp.Donut = s.donut(rk, resp.Totals.Used)
 		resp.Forecast, resp.ForecastDays, err = s.forecast(r.Context(), s.today(), resp.Totals.Size)
 	}
 	if err == nil {
-		resp.Trend, err = s.trend(r.Context(), resp.Totals.Used)
+		resp.Trend, err = s.trend(r.Context(), rk, resp.Totals.Used)
 	}
 	if err != nil {
 		s.log.Error("overview", "err", err)
@@ -124,23 +126,34 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// donut splits used, the live Used space, by category in the latest Scan's
-// tree: Shared bytes go to the highest-Ranked category they are in, and
-// what the Scan didn't see is Unaccounted.
-func (s *Server) donut(ctx context.Context, used int64) (donutJSON, error) {
+// ranking is what splits Used space by category: every category id,
+// highest Rank first, and the Assignments.
+type ranking struct {
+	ranked   []category.ID
+	assigned category.Assignments
+}
+
+func (s *Server) readRanking(ctx context.Context) (ranking, error) {
 	list, err := s.cats.List(ctx)
 	if err != nil {
-		return donutJSON{}, err
+		return ranking{}, err
 	}
 	assigned, err := s.cats.Assignments(ctx)
 	if err != nil {
-		return donutJSON{}, err
+		return ranking{}, err
 	}
-	ranked := make([]category.ID, len(list))
+	r := ranking{ranked: make([]category.ID, len(list)), assigned: assigned}
 	for i, c := range list {
-		ranked[i] = c.ID
+		r.ranked[i] = c.ID
 	}
-	split := category.Measure(s.scans.Tree(), assigned).Split(ranked, used)
+	return r, nil
+}
+
+// donut splits used, the live Used space, by category in the latest Scan's
+// tree: Shared bytes go to the highest-Ranked category they are in, and
+// what the Scan didn't see is Unaccounted.
+func (s *Server) donut(r ranking, used int64) donutJSON {
+	split := category.Measure(s.scans.Tree(), r.assigned).Split(r.ranked, used)
 	out := donutJSON{
 		Categories:    make([]donutPartJSON, len(split.Categories)),
 		Uncategorized: split.Uncategorized,
@@ -149,5 +162,5 @@ func (s *Server) donut(ctx context.Context, used int64) (donutJSON, error) {
 	for i, p := range split.Categories {
 		out.Categories[i] = donutPartJSON{CategoryID: p.ID, Bytes: p.Bytes}
 	}
-	return out, nil
+	return out
 }

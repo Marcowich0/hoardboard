@@ -23,31 +23,31 @@ type trendSeriesJSON struct {
 	Bytes      []int64     `json:"bytes"`
 }
 
-// trend splits each day of History by Rank under the current Assignments
-// and Rank, so a byte in several categories is stacked once, in the
+// trend splits each day of History by Rank (ranked, highest first) under
+// the Assignments, so a byte in several categories is stacked once, in the
 // highest-Ranked of them. Today's Used space is liveUsed, the donut's, so
 // the last day's stack is the donut.
-func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
-	p, err := s.measurePast(ctx)
+func (s *Server) trend(ctx context.Context, r ranking, liveUsed int64) (trendJSON, error) {
+	p, err := category.MeasurePast(ctx, s.history, r.assigned, s.today())
 	if err != nil {
 		return trendJSON{}, err
 	}
-	used, err := s.usedDaily(ctx, p.from, len(p.sizes))
+	used, err := s.usedDaily(ctx, p.From, len(p.Sizes))
 	if err != nil {
 		return trendJSON{}, err
 	}
-	n := len(p.sizes)
+	n := len(p.Sizes)
 	out := trendJSON{
 		Days:          make([]string, n),
-		Categories:    make([]trendSeriesJSON, len(p.ranked)),
+		Categories:    make([]trendSeriesJSON, len(r.ranked)),
 		Uncategorized: make([]int64, n),
 		Unaccounted:   make([]int64, n),
 	}
-	for i, id := range p.ranked {
+	for i, id := range r.ranked {
 		out.Categories[i] = trendSeriesJSON{CategoryID: id, Bytes: make([]int64, n)}
 	}
-	for d, sz := range p.sizes {
-		day := p.from + history.Day(d)
+	for d, sz := range p.Sizes {
+		day := p.From + history.Day(d)
 		u := used[d]
 		switch {
 		case day == s.today():
@@ -55,7 +55,7 @@ func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
 		case u < 0:
 			u = sz.Total() // nothing to shrink to, nothing Unaccounted
 		}
-		split := sz.Split(p.ranked, u)
+		split := sz.Split(r.ranked, u)
 		out.Days[d] = day.String()
 		for i, part := range split.Categories {
 			out.Categories[i].Bytes[d] = part.Bytes

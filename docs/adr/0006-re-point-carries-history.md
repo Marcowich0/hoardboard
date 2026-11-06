@@ -14,7 +14,7 @@ had on a day):
 - **A Folder's History** (`history.Store.Read`, so `GET /api/history?path=`,
   the Explorer's change over a period and a category's past) is spliced: the
   rows of the path it had on each day.
-- **A category's past** (`measurePast`) measures each day under the
+- **A category's past** (`category.MeasurePast`) measures each day under the
   Assignments moved back to the paths their Folders had that day. Link sets,
   recorded by the paths names had then, then meet the right category with
   no change to the engine or to the link sets.
