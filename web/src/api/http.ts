@@ -2,7 +2,18 @@
 // ./index.ts once the server has it.
 
 import { ApiError } from './errors.ts'
-import type { HealthReport, Largest, LiveOverview, Period, ScanRequestResult, ScanStatus, Tree } from './types.ts'
+import type {
+  Categories,
+  Category,
+  CategoryInput,
+  HealthReport,
+  Largest,
+  LiveOverview,
+  Period,
+  ScanRequestResult,
+  ScanStatus,
+  Tree,
+} from './types.ts'
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -62,3 +73,24 @@ export const scanStatus = () => getJSON<ScanStatus>('/api/scan')
 
 /** POST /api/scan: starts a Scan, or joins the one already running. */
 export const scanNow = () => sendJSON<ScanRequestResult>('POST', '/api/scan')
+
+/** GET /api/categories: every category in Rank order, measured in the latest Scan, and Uncategorized. */
+export const categories = () => getJSON<Categories>('/api/categories')
+
+/** POST /api/categories: a new category, ranked below the others. */
+export const createCategory = (input: CategoryInput) => sendJSON<Category>('POST', '/api/categories', input)
+
+/** PATCH /api/categories/{id}: renames and/or recolours a category. */
+export const updateCategory = (id: number, input: Partial<CategoryInput>) =>
+  sendJSON<Category>('PATCH', `/api/categories/${id}`, input)
+
+/** DELETE /api/categories/{id}: its folders go back to Uncategorized (or the category above them). */
+export const deleteCategory = (id: number) => sendJSON<void>('DELETE', `/api/categories/${id}`)
+
+/** POST /api/assignments: puts a Folder into a category, replacing its own Assignment. */
+export const assign = (path: string, categoryId: number) =>
+  sendJSON<void>('POST', '/api/assignments', { path, categoryId })
+
+/** DELETE /api/assignments?path=: removes a Folder's Assignment. */
+export const unassign = (path: string) =>
+  sendJSON<void>('DELETE', `/api/assignments?${new URLSearchParams({ path }).toString()}`)

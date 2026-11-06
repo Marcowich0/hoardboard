@@ -17,7 +17,7 @@ const fake = createFakeApi(makeWorld(new Date()), { latencyMs: 180 })
 export const api: Api = {
   health: http.health, // real
   // Real totals, disk bars and parity; the donut, trend and forecast stay
-  // fake until the category engine and API ticket.
+  // fake (with the fake's own category ids) until the overview's split.
   overview: async () => {
     const [live, made] = await Promise.all([http.overview(), fake.overview()])
     return { ...made, ...live }
@@ -27,14 +27,18 @@ export const api: Api = {
   tree: http.tree,
   largest: http.largest, // real; categoryId stays null until the category engine
   folderHistory: fake.folderHistory,
-  categoryHistory: fake.categoryHistory,
-  categories: fake.categories,
-  createCategory: fake.createCategory,
-  updateCategory: fake.updateCategory,
-  deleteCategory: fake.deleteCategory,
+  // Fake until category History: the fake only knows its own categories,
+  // so a real one shows no points yet.
+  categoryHistory: (categoryId) => fake.categoryHistory(categoryId).catch(() => ({ points: [] })),
+  // Real: the category engine measures the latest Scan. Rank order and
+  // re-pointing come with later tickets.
+  categories: http.categories,
+  createCategory: http.createCategory,
+  updateCategory: http.updateCategory,
+  deleteCategory: http.deleteCategory,
   reorderCategories: fake.reorderCategories,
-  assign: fake.assign,
-  unassign: fake.unassign,
+  assign: http.assign,
+  unassign: http.unassign,
   repoint: fake.repoint,
   scanStatus: http.scanStatus, // real
   scanNow: http.scanNow, // real
