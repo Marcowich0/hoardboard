@@ -15,6 +15,7 @@ import type {
   Entry,
   FileEntry,
   FolderInfo,
+  FolderHistory,
   History,
   Overview,
   ParityDisk,
@@ -372,6 +373,27 @@ export function createFakeApi(world: FakeWorld, options: FakeOptions = {}): Api 
     return { points: s.days.map((day, i) => ({ day, size: sizes?.[i] ?? 0 })) }
   }
 
+  /** A Folder's Size and Shared bytes per day: a name inside it is shared while the file also has one outside. */
+  function folderHistory(path: string): FolderHistory {
+    const s = series(
+      () => true,
+      (alive) => {
+        const inside = alive.filter((f) => within(path, f.path)).length
+        if (inside === 0) return null
+        return inside < alive.length ? 'shared' : 'single'
+      },
+    )
+    const shared = s.byKey.get('shared')
+    const single = s.byKey.get('single')
+    return {
+      path,
+      points: s.days.map((day, i) => {
+        const sharedBytes = shared?.[i] ?? 0
+        return { day, size: sharedBytes + (single?.[i] ?? 0), sharedBytes }
+      }),
+    }
+  }
+
   function categoryList(): Categories {
     const files = filesOn(today())
     const inodes = byInode(files)
@@ -484,7 +506,7 @@ export function createFakeApi(world: FakeWorld, options: FakeOptions = {}): Api 
     overview: () => answer(overview),
     tree: (path, period) => answer(() => tree(path, period)),
     largest: (path) => answer(() => largest(path)),
-    folderHistory: (path) => answer(() => history((f) => within(path, f.path))),
+    folderHistory: (path) => answer(() => folderHistory(path)),
     categoryHistory: (categoryId) =>
       answer(() => {
         findCategory(categoryId)

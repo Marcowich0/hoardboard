@@ -6,6 +6,7 @@ import type {
   Categories,
   Category,
   CategoryInput,
+  FolderHistory,
   HealthReport,
   Largest,
   LiveOverview,
@@ -70,6 +71,10 @@ export const tree = (path: string, period: Period) =>
  * Scan, largest first; a hardlinked file once, by its first path in name order.
  */
 export const largest = (path: string) => getJSON<Largest>(`/api/largest?${new URLSearchParams({ path }).toString()}`)
+
+/** GET /api/history?path=: a Folder's Size and Shared bytes per day, from the first Scan that saw it to today. */
+export const folderHistory = (path: string) =>
+  getJSON<FolderHistory>(`/api/history?${new URLSearchParams({ path }).toString()}`)
 
 /** GET /api/scan: whether a Scan runs, the last one that finished, the latest skip and the next one due. */
 export const scanStatus = () => getJSON<ScanStatus>('/api/scan')

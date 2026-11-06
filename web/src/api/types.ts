@@ -154,6 +154,16 @@ export interface History {
   points: { day: string; size: number }[]
 }
 
+/**
+ * GET /api/history?path=: a Folder's History, one point per day from the
+ * first Scan that saw it to today, each day carrying the last Scan's values
+ * forward. A deleted Folder keeps its History, at zero since it went.
+ */
+export interface FolderHistory extends History {
+  path: string
+  points: { day: string; size: number; sharedBytes: number }[]
+}
+
 // /api/categories ------------------------------------------------------------
 
 export interface Categories {
@@ -219,7 +229,7 @@ export interface Api {
   overview(): Promise<Overview>
   tree(path: string, period: Period): Promise<Tree>
   largest(path: string): Promise<Largest>
-  folderHistory(path: string): Promise<History>
+  folderHistory(path: string): Promise<FolderHistory>
   categoryHistory(categoryId: number): Promise<History>
   categories(): Promise<Categories>
   createCategory(input: CategoryInput): Promise<Category>
