@@ -1,9 +1,13 @@
 package apitest
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
 	"testing"
 )
 
@@ -27,19 +31,99 @@ var DefaultDisks = []string{"disk1", "disk2", "cache"}
 // Paths given to its methods are relative to the Disk, so "data/media/a.mkv"
 // on "disk1" is <Root>/disk1/data/media/a.mkv, the Folder data/media of the
 // merged tree. Parent folders are created as needed.
+//
+// It also fakes the kernel's list of mount points (the server's mountinfo
+// file), which says where a Scan must stop: see MountPoint.
 type Mount struct {
 	Root string
 	t    testing.TB
+
+	mu        sync.Mutex
+	mountInfo string   // the fake mountinfo file, outside Root
+	mounts    []string // its mount points, absolute
 }
 
 // NewMount makes an empty mount root with the DefaultDisks.
 func NewMount(t testing.TB) *Mount {
 	t.Helper()
 	m := &Mount{Root: t.TempDir(), t: t}
+	m.mountInfo = filepath.Join(t.TempDir(), "mountinfo")
+	// As on Unraid, every Disk is a filesystem of its own, and so is /.
+	m.mounts = []string{"/"}
 	for _, d := range DefaultDisks {
 		m.AddDisk(d)
+		m.mounts = append(m.mounts, m.realPath(d, ""))
 	}
+	m.writeMountInfo()
 	return m
+}
+
+// MountPoint makes the folder rel on disk a mount point: another filesystem
+// (a backup drive, say) is mounted there, so a Scan must not go in.
+func (m *Mount) MountPoint(disk, rel string) {
+	m.t.Helper()
+	m.Dir(disk, rel)
+	m.mu.Lock()
+	m.mounts = append(m.mounts, m.realPath(disk, rel))
+	m.mu.Unlock()
+	m.writeMountInfo()
+}
+
+// HoldScans makes every Scan wait at its start, as on a very slow disk, until
+// release is called (at the latest when the test ends). Meanwhile a test can
+// see a Scan running, join it, or move the clock. Don't call MountPoint
+// while scans are held.
+func (m *Mount) HoldScans() (release func()) {
+	m.t.Helper()
+	// The server reads the mountinfo file when a Scan starts. Opening a
+	// FIFO for reading blocks until something writes to it.
+	m.must(os.Remove(m.mountInfo))
+	m.must(syscall.Mkfifo(m.mountInfo, 0o600))
+	var once sync.Once
+	release = func() {
+		once.Do(func() {
+			// O_RDWR never blocks on a FIFO, whether a Scan waits or not.
+			f, err := os.OpenFile(m.mountInfo, os.O_RDWR, 0)
+			m.must(err)
+			defer f.Close()
+			// From now on Scans read the plain file; one that already opened
+			// the FIFO reads the same lines from it.
+			m.writeMountInfo()
+			_, err = f.WriteString(m.mountInfoText())
+			m.must(err)
+		})
+	}
+	m.t.Cleanup(release)
+	return release
+}
+
+// realPath is the absolute path of rel on disk, symlinks resolved, as the
+// kernel lists mount points.
+func (m *Mount) realPath(disk, rel string) string {
+	m.t.Helper()
+	root, err := filepath.EvalSymlinks(m.Root)
+	m.must(err)
+	return filepath.Join(root, disk, filepath.FromSlash(rel))
+}
+
+func (m *Mount) mountInfoText() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var b strings.Builder
+	for i, p := range m.mounts {
+		// proc_pid_mountinfo(5): space, tab, newline and backslash are octal.
+		esc := strings.NewReplacer(`\`, `\134`, " ", `\040`, "\t", `\011`, "\n", `\012`).Replace(p)
+		fmt.Fprintf(&b, "%d 1 0:%d / %s ro,relatime shared:%d - xfs /dev/md%dp1 ro\n", 100+i, 30+i, esc, i+1, i+1)
+	}
+	return b.String()
+}
+
+// writeMountInfo replaces the mountinfo file in one step.
+func (m *Mount) writeMountInfo() {
+	m.t.Helper()
+	tmp := m.mountInfo + ".new"
+	m.must(os.WriteFile(tmp, []byte(m.mountInfoText()), 0o644))
+	m.must(os.Rename(tmp, m.mountInfo))
 }
 
 // Path is the absolute path of rel on disk.
@@ -122,4 +206,13 @@ func (m *Mount) must(err error) {
 	if err != nil {
 		m.t.Fatal(err)
 	}
+}
+
+// Fifo makes a named pipe at rel on disk. Opening it for reading blocks
+// until something writes, so a Scan that opened files would never end.
+func (m *Mount) Fifo(disk, rel string) {
+	m.t.Helper()
+	p := m.Path(disk, rel)
+	m.must(os.MkdirAll(filepath.Dir(p), 0o755))
+	m.must(syscall.Mkfifo(p, 0o644))
 }

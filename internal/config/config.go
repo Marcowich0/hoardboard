@@ -50,6 +50,9 @@ type Config struct {
 	// Revision is the commit the binary was built from, "" if unknown. No
 	// variable sets it: cmd/hoardboard reads it from the build.
 	Revision string
+	// MountInfo is the file listing the mount points a Scan must not cross,
+	// "" for /proc/self/mountinfo. No variable sets it: tests inject a fake.
+	MountInfo string
 	// Clock is the source of "now". No variable sets it: nil means the
 	// system clock, and tests inject a fake.
 	Clock clock.Clock

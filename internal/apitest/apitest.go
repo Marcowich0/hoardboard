@@ -140,6 +140,7 @@ func (a *App) start(t testing.TB) {
 	}
 	cfg.Revision = Revision
 	cfg.Clock = a.Clock
+	cfg.MountInfo = a.Mount.mountInfo
 
 	logs := a.opts.logs
 	if logs == nil {
@@ -262,4 +263,11 @@ func (a *App) expectJSON(t testing.TB, resp *http.Response, wantStatus int, out 
 	if err := json.Unmarshal(body, out); err != nil {
 		t.Fatalf("%s %s: decode %s: %v", resp.Request.Method, resp.Request.URL.Path, body, err)
 	}
+}
+
+// Scan runs a Scan through the API, POST /api/scan?wait=true, and fails the
+// test unless it finished. It joins a Scan that is already running.
+func (a *App) Scan(t testing.TB) {
+	t.Helper()
+	a.PostJSON(t, "/api/scan?wait=true", nil, http.StatusOK, nil)
 }
