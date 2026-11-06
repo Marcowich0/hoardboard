@@ -22,11 +22,11 @@ export const api: Api = {
     const [live, made] = await Promise.all([http.overview(), fake.overview()])
     return { ...made, ...live }
   },
-  // Real folders, files, Size, items, Shared bytes and bytes per Disk.
-  // Change and categories come with later tickets (null until then).
+  // Real folders, files, Size, items, Shared bytes, bytes per Disk and the
+  // change over the period. Categories come with a later ticket (null until then).
   tree: http.tree,
   largest: http.largest, // real; categoryId stays null until the category engine
-  folderHistory: fake.folderHistory,
+  folderHistory: http.folderHistory, // real
   categoryHistory: fake.categoryHistory,
   categories: fake.categories,
   createCategory: fake.createCategory,

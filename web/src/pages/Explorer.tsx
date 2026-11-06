@@ -191,7 +191,7 @@ function ExplorerBody({ tree, period, loading }: { tree: Tree; period: Period; l
 
       <Contents tree={tree} period={period} onAdd={(entry) => setAdding({ path: entry.path, current: null })} />
 
-      <LargestFiles path={tree.path} />
+      <LargestFiles path={tree.path} period={period} />
 
       {adding && <AddToCategory path={adding.path} current={adding.current} onClose={() => setAdding(null)} />}
     </div>
@@ -395,7 +395,7 @@ function ChangeCell({ entry }: { entry: Entry }) {
   return <span className={entry.change > 0 ? 'text-ink' : 'text-ink-2'}>{formatChange(entry.change)}</span>
 }
 
-function LargestFiles({ path }: { path: string }) {
+function LargestFiles({ path, period }: { path: string; period: Period }) {
   const { data } = useApi(() => api.largest(path), [path])
   const book = useCategories()
   const [all, setAll] = useState(false)
@@ -429,7 +429,7 @@ function LargestFiles({ path }: { path: string }) {
                   </p>
                   {folder && (
                     <Link
-                      to={explorerHref(parentPath(f.path), '30d')}
+                      to={explorerHref(parentPath(f.path), period)}
                       className="block truncate text-[12px] text-muted hover:text-ink hover:underline"
                     >
                       {folder}

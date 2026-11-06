@@ -2,7 +2,7 @@
 // ./index.ts once the server has it.
 
 import { ApiError } from './errors.ts'
-import type { HealthReport, Largest, LiveOverview, Period, ScanRequestResult, ScanStatus, Tree } from './types.ts'
+import type { FolderHistory, HealthReport, Largest, LiveOverview, Period, ScanRequestResult, ScanStatus, Tree } from './types.ts'
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -56,6 +56,10 @@ export const tree = (path: string, period: Period) =>
  * Scan, largest first; a hardlinked file once, by its first path in name order.
  */
 export const largest = (path: string) => getJSON<Largest>(`/api/largest?${new URLSearchParams({ path }).toString()}`)
+
+/** GET /api/history?path=: a Folder's Size and Shared bytes per day, from the first Scan that saw it to today. */
+export const folderHistory = (path: string) =>
+  getJSON<FolderHistory>(`/api/history?${new URLSearchParams({ path }).toString()}`)
 
 /** GET /api/scan: whether a Scan runs, and the last one that finished. */
 export const scanStatus = () => getJSON<ScanStatus>('/api/scan')

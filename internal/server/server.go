@@ -11,6 +11,7 @@ import (
 	"github.com/Marcowich0/hoardboard/internal/clock"
 	"github.com/Marcowich0/hoardboard/internal/config"
 	"github.com/Marcowich0/hoardboard/internal/db"
+	"github.com/Marcowich0/hoardboard/internal/history"
 	"github.com/Marcowich0/hoardboard/internal/inventory"
 	"github.com/Marcowich0/hoardboard/internal/scan"
 )
@@ -23,7 +24,9 @@ type Server struct {
 	db    *sql.DB
 	inv   *inventory.Inventory
 	scans *scan.Scanner
-	mux   *http.ServeMux
+	// history is every Folder's daily History, written after each Scan.
+	history *history.Store
+	mux     *http.ServeMux
 }
 
 // New opens the database in cfg.DataDir and sets up the routes. Close it
@@ -39,12 +42,18 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 	}
 	s := &Server{cfg: cfg, log: log, clock: c, db: d, mux: http.NewServeMux(),
 		inv: inventory.New(cfg.MountRoot, cfg.StatusDir)}
+	s.history, err = history.Open(context.Background(), d)
+	if err != nil {
+		d.Close()
+		return nil, err
+	}
 	s.scans, err = scan.New(context.Background(), scan.Config{
 		DB:        d,
 		Inventory: s.inv,
 		Clock:     c,
 		Log:       log,
 		MountInfo: cfg.MountInfo,
+		AfterScan: []scan.AfterScan{s.history.AfterScan},
 	})
 	if err != nil {
 		d.Close()
