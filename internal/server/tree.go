@@ -2,11 +2,13 @@ package server
 
 import (
 	"cmp"
+	"context"
 	"net/http"
 	"slices"
 	"strings"
 
 	"github.com/Marcowich0/hoardboard/internal/category"
+	"github.com/Marcowich0/hoardboard/internal/history"
 	"github.com/Marcowich0/hoardboard/internal/tree"
 )
 
@@ -22,8 +24,7 @@ type treeJSON struct {
 	Children []any      `json:"children"` // folderEntryJSON, then fileEntryJSON
 }
 
-// folderJSON is FolderInfo. Change comes with History; until then it is
-// null.
+// folderJSON is FolderInfo.
 type folderJSON struct {
 	Path        string          `json:"path"`
 	Name        string          `json:"name"`
@@ -73,7 +74,9 @@ type fileEntryJSON struct {
 	CategoryID *category.ID `json:"categoryId"`
 }
 
-var periods = []string{"7d", "30d", "1y"}
+// periodDays is how many days back each period of GET /api/tree's change
+// reaches.
+var periodDays = map[string]int{"7d": 7, "30d": 30, "1y": 365}
 
 const defaultPeriod = "30d"
 
@@ -90,7 +93,8 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	if period == "" {
 		period = defaultPeriod
 	}
-	if !slices.Contains(periods, period) {
+	days, ok := periodDays[period]
+	if !ok {
 		writeError(w, http.StatusBadRequest, "period: want 7d, 30d or 1y")
 		return
 	}
@@ -104,6 +108,12 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no folder "+path)
 		return
 	}
+	change, err := s.changes(r.Context(), f, path, days)
+	if err != nil {
+		s.log.Error("tree", "err", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	assigned, err := s.cats.Assignments(r.Context())
 	if err != nil {
 		s.categoryError(w, err)
@@ -112,9 +122,40 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, treeJSON{
 		Path:     path,
 		Period:   period,
-		Folder:   folderInfoJSON(t, f, path, assigned),
-		Children: childrenJSON(t, f, path, assigned),
+		Folder:   folderInfoJSON(t, f, path, change, assigned),
+		Children: childrenJSON(t, f, path, change, assigned),
 	})
+}
+
+// changeFunc is a Folder's change over the period, by path; nil when History
+// doesn't reach back that far.
+type changeFunc func(path string, size int64) *int64
+
+// changes reads, from History, how f and its subfolders changed over the
+// last days days: their Size from the latest Scan minus their Size then (zero
+// for a Folder that didn't exist then).
+func (s *Server) changes(ctx context.Context, f *tree.Folder, path string, days int) (changeFunc, error) {
+	start, ok, err := s.history.Start(ctx)
+	if err != nil {
+		return nil, err
+	}
+	then := s.today() - history.Day(days)
+	if !ok || then < start {
+		return func(string, int64) *int64 { return nil }, nil
+	}
+	paths := make([]string, 0, len(f.Folders)+1)
+	paths = append(paths, path)
+	for _, c := range f.Folders {
+		paths = append(paths, joinPath(path, c.Name))
+	}
+	series, err := s.history.Read(ctx, paths, then)
+	if err != nil {
+		return nil, err
+	}
+	return func(path string, size int64) *int64 {
+		d := size - series[path].At(then).Size
+		return &d
+	}, nil
 }
 
 // validPath accepts "" and slash-separated names, none empty, "." or "..".
@@ -130,7 +171,7 @@ func validPath(p string) bool {
 	return true
 }
 
-func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string, assigned category.Assignments) folderJSON {
+func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string, change changeFunc, assigned category.Assignments) folderJSON {
 	var c *folderCategoryJSON
 	if id, at, ok := assigned.Of(path); ok {
 		c = &folderCategoryJSON{CategoryID: id, AssignedPath: at}
@@ -139,6 +180,7 @@ func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string, assigned category
 		Path:        path,
 		Name:        f.Name,
 		Size:        f.Size,
+		Change:      change(path, f.Size),
 		Items:       f.Items,
 		SharedBytes: f.SharedBytes,
 		Disks:       disksJSON(t, f),
@@ -147,13 +189,8 @@ func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string, assigned category
 }
 
 // childrenJSON lists f's subfolders, then its files, each largest first.
-func childrenJSON(t *tree.Tree, f *tree.Folder, path string, assigned category.Assignments) []any {
-	join := func(name string) string {
-		if path == "" {
-			return name
-		}
-		return path + "/" + name
-	}
+func childrenJSON(t *tree.Tree, f *tree.Folder, path string, change changeFunc, assigned category.Assignments) []any {
+	join := func(name string) string { return joinPath(path, name) }
 	folders := slices.Clone(f.Folders)
 	slices.SortStableFunc(folders, func(a, b *tree.Folder) int { return cmp.Compare(b.Size, a.Size) })
 	files := slices.Clone(f.Files)
@@ -166,6 +203,7 @@ func childrenJSON(t *tree.Tree, f *tree.Folder, path string, assigned category.A
 			Name:        c.Name,
 			Path:        join(c.Name),
 			Size:        c.Size,
+			Change:      change(join(c.Name), c.Size),
 			Items:       c.Items,
 			SharedBytes: c.SharedBytes,
 			Disks:       disksJSON(t, c),
