@@ -14,8 +14,8 @@ func init() {
 }
 
 // overviewResponse is the answer of GET /api/overview (Overview in
-// web/src/api/types.ts). For now it holds what comes live from the disks
-// and the donut; the trend and forecast come with later tickets.
+// web/src/api/types.ts): what comes live from the disks, the donut and the
+// trend. The forecast comes with a later ticket.
 type overviewResponse struct {
 	// Today is the server's day, "YYYY-MM-DD".
 	Today string `json:"today"`
@@ -27,6 +27,8 @@ type overviewResponse struct {
 	Parity []parityJSON `json:"parity"`
 	// Donut is Totals.Used split by category (UsedSplit).
 	Donut donutJSON `json:"donut"`
+	// Trend is the donut's split on every day of History.
+	Trend trendJSON `json:"trend"`
 }
 
 // donutJSON is UsedSplit: the parts add up to Totals.Used.
@@ -102,6 +104,11 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		resp.Totals.Free += js.Free
 	}
 	if resp.Donut, err = s.donut(r.Context(), resp.Totals.Used); err != nil {
+		s.log.Error("overview", "err", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if resp.Trend, err = s.trend(r.Context(), resp.Totals.Used); err != nil {
 		s.log.Error("overview", "err", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

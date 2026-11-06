@@ -32,6 +32,10 @@ func (s *Server) today() history.Day { return history.DayOf(s.clock.Now()) }
 // deleted Folder's History is still there (zero since the Scan that no
 // longer found it).
 func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("category") {
+		s.handleCategoryHistory(w, r)
+		return
+	}
 	path := r.URL.Query().Get("path")
 	if !validPath(path) {
 		writeError(w, http.StatusBadRequest, `path: want a Share path such as "data/media", without leading or trailing "/"`)
