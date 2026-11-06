@@ -138,7 +138,13 @@ function Summary({ data }: { data: OverviewData }) {
             label="Growth"
             icon={<TrendIcon size={14} />}
             value={forecast ? `${formatChange(forecast.bytesPerMonth)}` : '—'}
-            detail={forecast ? 'a month, last 90 days' : 'Not growing'}
+            detail={
+              forecast
+                ? `a month, last ${data.forecastDays} days`
+                : data.forecastDays < 7
+                  ? 'Needs a week of history'
+                  : 'Not growing'
+            }
           />
           <Figure
             label="Full in"
@@ -146,7 +152,7 @@ function Summary({ data }: { data: OverviewData }) {
             detail={
               forecast
                 ? `around ${monthYear.format(new Date(`${forecast.fullOn}T00:00:00Z`))}`
-                : daysBetween(data.trend.days[0] ?? data.today, data.today) < 7
+                : data.forecastDays < 7
                   ? 'Needs a week of history'
                   : 'No end in sight'
             }

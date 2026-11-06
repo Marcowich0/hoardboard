@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Marcowich0/hoardboard/internal/clock"
+	"golang.org/x/sys/unix"
 )
 
 // Environment variables.
@@ -53,6 +54,10 @@ type Config struct {
 	// MountInfo is the file listing the mount points a Scan must not cross,
 	// "" for /proc/self/mountinfo. No variable sets it: tests inject a fake.
 	MountInfo string
+	// Statfs asks the filesystem at path how full it is, as unix.Statfs
+	// does. No variable sets it: nil means unix.Statfs, and tests inject a
+	// fake, because every fake Disk is on one real filesystem.
+	Statfs func(path string, st *unix.Statfs_t) error
 	// Clock is the source of "now". No variable sets it: nil means the
 	// system clock, and tests inject a fake.
 	Clock clock.Clock

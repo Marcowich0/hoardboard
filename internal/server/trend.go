@@ -63,11 +63,22 @@ func (s *Server) trend(ctx context.Context, liveUsed int64) (trendJSON, error) {
 	return out, nil
 }
 
-// usedDaily is the total Used space of the Disks on each of the n days
-// from from, 0 where it isn't known.
-//
-// TODO(#15): read it from the per-Disk Used space History. Until then every
-// past day's Used space is unknown, so its Unaccounted is 0.
-func (s *Server) usedDaily(_ context.Context, _ history.Day, n int) ([]int64, error) {
-	return make([]int64, n), nil
+// usedDaily is the Disks' total Used space on each of the n days from
+// from, as each day's last Scan recorded it; 0 on a day before Used space
+// History began (its Unaccounted is then 0).
+func (s *Server) usedDaily(ctx context.Context, from history.Day, n int) ([]int64, error) {
+	out := make([]int64, n)
+	if n == 0 {
+		return out, nil
+	}
+	rows, err := s.history.TotalUsed(ctx, from+history.Day(n-1), n)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		if i := int(r.Day - from); i >= 0 && i < n {
+			out[i] = r.Value
+		}
+	}
+	return out, nil
 }

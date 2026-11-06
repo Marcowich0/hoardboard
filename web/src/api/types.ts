@@ -31,14 +31,16 @@ export interface Overview {
   trend: Trend
   /** Null with fewer than 7 days of History, or when Used space isn't growing. */
   forecast: Forecast | null
+  /** The daily points of total Used space the forecast was fitted to (at most 90). */
+  forecastDays: number
 }
 
 /**
- * What GET /api/overview answers so far: the live disk figures and the donut.
- * The trend and forecast come with later tickets; until then ./index.ts takes
- * them from the fake.
+ * What GET /api/overview answers so far: the live disk figures, the donut
+ * and the forecast. The trend comes with a later ticket; until then
+ * ./index.ts takes it from the fake.
  */
-export type LiveOverview = Pick<Overview, 'today' | 'totals' | 'disks' | 'parity' | 'donut'>
+export type LiveOverview = Pick<Overview, 'today' | 'totals' | 'disks' | 'parity' | 'donut' | 'forecast' | 'forecastDays'>
 
 export interface Disk {
   /** "disk1"… or "cache". */
@@ -79,7 +81,7 @@ export interface Trend {
 }
 
 export interface Forecast {
-  /** The fitted growth over the last 90 days. */
+  /** The fitted growth over the last 90 days, per average month (365.25/12 days). */
   bytesPerMonth: number
   /** The day the fitted line reaches the total size. */
   fullOn: string

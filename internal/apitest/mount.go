@@ -9,6 +9,8 @@ import (
 	"sync"
 	"syscall"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 // Sizes for Mount.File. Use whole multiples of BlockSize, so that a file's
@@ -33,15 +35,20 @@ var DefaultDisks = []string{"disk1", "disk2", "cache"}
 // merged tree. Parent folders are created as needed.
 //
 // It also fakes the kernel's list of mount points (the server's mountinfo
-// file), which says where a Scan must stop: see MountPoint.
+// file), which says where a Scan must stop: see MountPoint. And since every
+// Disk is on one real filesystem, it can fake what a Disk's filesystem
+// reports as its Used space and Free space: see SetSpace.
 type Mount struct {
 	Root string
 	t    testing.TB
 
 	mu        sync.Mutex
-	mountInfo string   // the fake mountinfo file, outside Root
-	mounts    []string // its mount points, absolute
+	mountInfo string               // the fake mountinfo file, outside Root
+	mounts    []string             // its mount points, absolute
+	space     map[string]fakeSpace // by Disk, see SetSpace
 }
+
+type fakeSpace struct{ size, used int64 }
 
 // NewMount makes an empty mount root with the DefaultDisks.
 func NewMount(t testing.TB) *Mount {
@@ -67,6 +74,37 @@ func (m *Mount) MountPoint(disk, rel string) {
 	m.mounts = append(m.mounts, m.realPath(disk, rel))
 	m.mu.Unlock()
 	m.writeMountInfo()
+}
+
+// SetSpace makes disk's filesystem report size bytes in all, used of them
+// Used space and the rest Free space, from now on (to the overview and to
+// what a Scan records), instead of the real filesystem's figures.
+func (m *Mount) SetSpace(disk string, size, used int64) {
+	m.t.Helper()
+	if used < 0 || used > size {
+		m.t.Fatalf("SetSpace(%s): used %d not within size %d", disk, used, size)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.space == nil {
+		m.space = map[string]fakeSpace{}
+	}
+	m.space[disk] = fakeSpace{size: size, used: used}
+}
+
+// statfs is the server's statfs: SetSpace's figures for a Disk's folder,
+// unix.Statfs for anything else.
+func (m *Mount) statfs(path string, st *unix.Statfs_t) error {
+	m.mu.Lock()
+	sp, ok := m.space[filepath.Base(path)]
+	ok = ok && filepath.Dir(path) == filepath.Clean(m.Root)
+	m.mu.Unlock()
+	if !ok {
+		return unix.Statfs(path, st)
+	}
+	*st = unix.Statfs_t{Bsize: 1, Frsize: 1, Blocks: uint64(sp.size),
+		Bfree: uint64(sp.size - sp.used), Bavail: uint64(sp.size - sp.used)}
+	return nil
 }
 
 // HoldScans makes every Scan wait at its start, as on a very slow disk, until

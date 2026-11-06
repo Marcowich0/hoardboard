@@ -21,6 +21,8 @@ import (
 //     differs from the Folder's previous stored day; a Folder a Scan no
 //     longer finds gets a row of zeros. The primary key makes "one Folder's
 //     rows in day order" an index range, whatever the number of Folders.
+//   - disk_history: a Disk's Used space from day on, by the Disk's name,
+//     with the same write rule (see disks.go).
 var migrations = []string{
 	`CREATE TABLE folders (
 		id   INTEGER PRIMARY KEY,
@@ -32,6 +34,12 @@ var migrations = []string{
 		size         INTEGER NOT NULL,
 		shared_bytes INTEGER NOT NULL,
 		PRIMARY KEY (folder_id, day)
+	) WITHOUT ROWID;`,
+	`CREATE TABLE disk_history (
+		disk TEXT    NOT NULL,
+		day  INTEGER NOT NULL,
+		used INTEGER NOT NULL,
+		PRIMARY KEY (disk, day)
 	) WITHOUT ROWID;`,
 }
 
@@ -101,19 +109,15 @@ func (s *Store) AfterScan(ctx context.Context, tx *sql.Tx, done scan.Done, t *tr
 	for path, k := range known {
 		v, present := now[path]
 		delete(now, path)
-		// The value before today, carried forward, is what today would be
-		// without a row of its own.
-		keep := present || k.before != nil
-		if keep && (k.before == nil || *k.before != v) {
-			if k.today == nil || *k.today != v {
-				if _, err := upsert.ExecContext(ctx, k.id, today, v.Size, v.SharedBytes); err != nil {
-					return fmt.Errorf("history: %w", err)
-				}
-			}
-		} else if k.today != nil {
-			if _, err := remove.ExecContext(ctx, k.id, today); err != nil {
-				return fmt.Errorf("history: %w", err)
-			}
+		var err error
+		switch changeOn(k.before, k.today, v, present) {
+		case writeRow:
+			_, err = upsert.ExecContext(ctx, k.id, today, v.Size, v.SharedBytes)
+		case removeRow:
+			_, err = remove.ExecContext(ctx, k.id, today)
+		}
+		if err != nil {
+			return fmt.Errorf("history: %w", err)
 		}
 	}
 	// Folders History has never seen.

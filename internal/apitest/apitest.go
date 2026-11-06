@@ -148,6 +148,7 @@ func (a *App) start(t testing.TB) {
 	cfg.Revision = Revision
 	cfg.Clock = a.Clock
 	cfg.MountInfo = a.Mount.mountInfo
+	cfg.Statfs = a.Mount.statfs
 	cfg.NoSchedule = !a.opts.sched
 
 	logs := a.opts.logs
