@@ -16,8 +16,8 @@ const fake = createFakeApi(makeWorld(new Date()), { latencyMs: 180 })
 
 export const api: Api = {
   health: http.health, // real
-  // Real totals, disk bars, parity and donut; the trend and forecast stay
-  // fake (with the fake's own category ids) until their tickets.
+  // Real totals, disk bars, parity, donut and forecast; the trend stays
+  // fake (with the fake's own category ids) until its ticket.
   overview: async () => {
     const [live, made] = await Promise.all([http.overview(), fake.overview()])
     return { ...made, ...live }

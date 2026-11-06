@@ -43,7 +43,7 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 		c = clock.System()
 	}
 	s := &Server{cfg: cfg, log: log, clock: c, db: d, mux: http.NewServeMux(),
-		inv: inventory.New(cfg.MountRoot, cfg.StatusDir)}
+		inv: inventory.New(cfg.MountRoot, cfg.StatusDir, cfg.Statfs)}
 	if s.cats, err = category.Open(context.Background(), d); err != nil {
 		d.Close()
 		return nil, err
@@ -58,7 +58,7 @@ func New(cfg config.Config, log *slog.Logger) (*Server, error) {
 		Clock:     c,
 		Log:       log,
 		MountInfo: cfg.MountInfo,
-		AfterScan: []scan.AfterScan{s.history.AfterScan},
+		AfterScan: []scan.AfterScan{s.history.AfterScan, s.history.UsedSpace(s.inv)},
 	})
 	if err == nil && !cfg.NoSchedule {
 		err = s.scans.Schedule(context.Background(), cfg.ScanInterval)

@@ -34,7 +34,10 @@ func TestAFolderSpreadOverDisksIsOneFolder(t *testing.T) {
   the kernel's mountinfo: `MountPoint` makes a folder another filesystem's
   mount point, which a Scan must not enter, and `HoldScans` makes Scans wait
   at their start until released, so a test can see one running, join it, or
-  move the clock while it runs.
+  move the clock while it runs. And it fakes each Disk's filesystem figures:
+  `SetSpace(disk, size, used)` makes that Disk report them (to the overview
+  and to the Used space a Scan records) instead of the real filesystem's, so
+  a test can grow Used space day by day and assert the exact forecast.
 - **`app.Status`**: a temporary Unraid status folder with `disks.ini` and
   `var.ini` for an idle, started array (parity, disk1, disk2, an empty disk3
   slot, cache, flash). `StartParityCheck`, `PauseParityCheck`,
@@ -61,7 +64,8 @@ production (`WithEnv` adds more). Pass `apitest.WithLogs(t.Output())` to see its
 logs while debugging.
 
 **Limit**: every fake Disk is on one real filesystem, so assert that totals
-are consistent (the parts sum to Used space), not exact free-space numbers.
+are consistent (the parts sum to Used space), not exact free-space numbers,
+unless the test fixes every Disk's figures with `Mount.SetSpace`.
 
 **Root-only folders**: an ordinary test run can't list a `RootOnly` folder,
 which is the point; the container can, thanks to `CAP_DAC_READ_SEARCH`. A test
