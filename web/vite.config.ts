@@ -15,6 +15,10 @@ export default defineConfig({
     // server lets browsers keep them for a year. Files in public/ get no
     // hash, so none of them may go in public/static/.
     assetsDir: 'static',
+    // ECharts (only the charts and components in src/charts/EChart.tsx) is
+    // most of the bundle: about 320 kB gzipped in all, loaded once and cached
+    // for a year, on a LAN. Warn only well past that.
+    chunkSizeWarningLimit: 1200,
   },
   server: {
     proxy: { '/api': backend },
