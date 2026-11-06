@@ -179,3 +179,53 @@ func (s *Sizes) SharedWith(id ID) []Shared {
 	})
 	return out
 }
+
+// Split is Used space in parts that never overlap: one per category, in
+// Rank order, then Uncategorized and Unaccounted.
+type Split struct {
+	Categories    []Part
+	Uncategorized int64
+	// Unaccounted is the Used space no Scan accounts for: Used space minus
+	// every byte in the tree, floored at zero.
+	Unaccounted int64
+}
+
+// Part is the bytes a category owns in a Split.
+type Part struct {
+	ID    ID
+	Bytes int64
+}
+
+// Split splits used, the filesystems' Used space, for the donut. ranked is
+// every category id, highest Rank first. Bytes in several categories go to
+// the highest-Ranked of them; a category outranks Uncategorized. Unless the
+// tree holds more than used (files deleted since the Scan), the parts add
+// up to used exactly.
+func (s *Sizes) Split(ranked []ID, used int64) Split {
+	pos := make(map[ID]int, len(ranked))
+	for i, id := range ranked {
+		pos[id] = i
+	}
+	owned := make([]int64, len(ranked))
+	out := Split{Categories: make([]Part, len(ranked))}
+	var accounted int64
+	for _, g := range s.groups {
+		accounted += g.bytes
+		owner := -1
+		for _, id := range g.ids {
+			if i, ok := pos[id]; ok && (owner < 0 || i < owner) {
+				owner = i
+			}
+		}
+		if owner < 0 {
+			out.Uncategorized += g.bytes
+		} else {
+			owned[owner] += g.bytes
+		}
+	}
+	for i, id := range ranked {
+		out.Categories[i] = Part{ID: id, Bytes: owned[i]}
+	}
+	out.Unaccounted = max(0, used-accounted)
+	return out
+}

@@ -55,7 +55,10 @@ export async function health(): Promise<HealthReport> {
   }
 }
 
-/** GET /api/overview: the Disks, parity and totals, live from the filesystems. */
+/**
+ * GET /api/overview: the Disks, parity and totals, live from the filesystems,
+ * and the donut: that Used space split by category, Shared bytes to the higher Rank.
+ */
 export const overview = () => getJSON<LiveOverview>('/api/overview')
 
 /** GET /api/tree: a Folder of the latest Scan, its subfolders and its files. */
@@ -89,6 +92,9 @@ export const updateCategory = (id: number, input: Partial<CategoryInput>) =>
 
 /** DELETE /api/categories/{id}: its folders go back to Uncategorized (or the category above them). */
 export const deleteCategory = (id: number) => sendJSON<void>('DELETE', `/api/categories/${id}`)
+
+/** PUT /api/categories/order: sets every category's Rank, highest first. */
+export const reorderCategories = (ids: number[]) => sendJSON<void>('PUT', '/api/categories/order', { ids })
 
 /** POST /api/assignments: puts a Folder into a category, replacing its own Assignment. */
 export const assign = (path: string, categoryId: number) =>

@@ -16,8 +16,8 @@ const fake = createFakeApi(makeWorld(new Date()), { latencyMs: 180 })
 
 export const api: Api = {
   health: http.health, // real
-  // Real totals, disk bars and parity; the donut, trend and forecast stay
-  // fake (with the fake's own category ids) until the overview's split.
+  // Real totals, disk bars, parity and donut; the trend and forecast stay
+  // fake (with the fake's own category ids) until their tickets.
   overview: async () => {
     const [live, made] = await Promise.all([http.overview(), fake.overview()])
     return { ...made, ...live }
@@ -30,13 +30,13 @@ export const api: Api = {
   // Fake until category History: the fake only knows its own categories,
   // so a real one shows no points yet.
   categoryHistory: (categoryId) => fake.categoryHistory(categoryId).catch(() => ({ points: [] })),
-  // Real: the category engine measures the latest Scan. Rank order and
-  // re-pointing come with later tickets.
+  // Real: the category engine measures the latest Scan. Re-pointing comes
+  // with a later ticket.
   categories: http.categories,
   createCategory: http.createCategory,
   updateCategory: http.updateCategory,
   deleteCategory: http.deleteCategory,
-  reorderCategories: fake.reorderCategories,
+  reorderCategories: http.reorderCategories,
   assign: http.assign,
   unassign: http.unassign,
   repoint: fake.repoint,
