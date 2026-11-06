@@ -25,7 +25,7 @@ export const api: Api = {
   // Real folders, files, Size, items and bytes per Disk. Change, Shared
   // bytes and categories come with later tickets (null, 0 and null until then).
   tree: http.tree,
-  largest: fake.largest,
+  largest: http.largest, // real; categoryId stays null until the category engine
   folderHistory: fake.folderHistory,
   categoryHistory: fake.categoryHistory,
   categories: fake.categories,
