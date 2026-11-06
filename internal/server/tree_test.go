@@ -329,10 +329,10 @@ func TestAfterARestartTheSavedTreeIsServed(t *testing.T) {
 	var got tree
 	app.GetJSON(t, "/api/tree?path=data/media", http.StatusOK, &got)
 
-	if got.Folder.Size != 5*unit || len(got.Children) != 3 {
-		t.Fatalf("data/media = %+v, want the saved a.mkv, b.mkv and b2.mkv", got)
+	if got.Folder.Size != 3*unit || len(got.Children) != 3 {
+		t.Fatalf("data/media = %+v, want the saved a.mkv, b.mkv and b2.mkv, b.mkv counted once", got)
 	}
-	want := []diskBytes{{"disk2", 4 * unit}, {"disk1", unit}}
+	want := []diskBytes{{"disk2", 2 * unit}, {"disk1", unit}}
 	if !equalDisks(got.Folder.Disks, want) {
 		t.Errorf("disks = %+v, want %+v", got.Folder.Disks, want)
 	}
