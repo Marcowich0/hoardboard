@@ -4,6 +4,7 @@ import { api, type Overview as OverviewData } from '../api/index.ts'
 import { useApi } from '../api/useApi.ts'
 import DiskChart from '../charts/DiskChart.tsx'
 import DonutChart from '../charts/DonutChart.tsx'
+import { hatchCss } from '../charts/hatch.ts'
 import { useParts } from '../charts/parts.ts'
 import TrendChart from '../charts/TrendChart.tsx'
 import { ShieldIcon, TrendIcon } from '../components/icons.tsx'
@@ -117,9 +118,7 @@ function Summary({ data }: { data: OverviewData }) {
                   style={{
                     width: `${(p.bytes / totals.size) * 100}%`,
                     backgroundColor: p.colour,
-                    backgroundImage: p.hatch
-                      ? 'repeating-linear-gradient(135deg, rgba(0,0,0,0.28) 0 1.5px, transparent 1.5px 4px)'
-                      : undefined,
+                    backgroundImage: p.hatch ? hatchCss : undefined,
                   }}
                 />
               ))}

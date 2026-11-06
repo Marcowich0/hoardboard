@@ -1,3 +1,4 @@
+import { byteAxis, formatAxisBytes } from '../lib/axis.ts'
 import type { Chrome } from './chrome.ts'
 import { chartFont } from './chrome.ts'
 
@@ -41,4 +42,27 @@ export function timeAxis(days: string[], c: Chrome) {
     },
     splitLine: { show: false },
   }
+}
+
+/** A value axis of bytes from zero, with round ticks that cover largest. */
+export function byteValueAxis(largest: number, c: Chrome) {
+  const axis = byteAxis(largest)
+  return {
+    type: 'value' as const,
+    min: 0,
+    max: axis.max,
+    interval: axis.interval,
+    axisLabel: {
+      color: c.muted,
+      fontFamily: chartFont,
+      fontSize: 11,
+      formatter: (v: number) => formatAxisBytes(v),
+    },
+    splitLine: { lineStyle: { color: c.grid } },
+  }
+}
+
+/** The tooltip's pointer on a chart over days: a thin vertical line. */
+export function dayPointer(c: Chrome) {
+  return { type: 'line' as const, lineStyle: { color: c.axis, width: 1 } }
 }

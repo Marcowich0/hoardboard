@@ -1,13 +1,13 @@
 import { useMemo } from 'react'
 import type { Trend } from '../api/index.ts'
 import { useCategories } from '../categories.ts'
-import { byteAxis, formatAxisBytes } from '../lib/axis.ts'
 import { formatBytes } from '../lib/format.ts'
 import { escapeHtml } from '../lib/html.ts'
 import { useCurrentTheme } from '../theme.ts'
-import { chrome, chartFont } from './chrome.ts'
+import { chrome } from './chrome.ts'
 import EChart, { type ChartOption } from './EChart.tsx'
-import { dayLabel, timeAxis } from './time.ts'
+import { hatchDecal } from './hatch.ts'
+import { byteValueAxis, dayLabel, dayPointer, timeAxis } from './time.ts'
 
 /**
  * Used space over time, stacked by category in Rank order (the donut's split
@@ -26,13 +26,12 @@ export default function TrendChart({ trend, from, height = 300 }: { trend: Trend
       { ...book.unaccounted, bytes: trend.unaccounted },
     ].map((l) => ({ ...l, bytes: l.bytes.slice(from) }))
     const tops = days.map((_, i) => layers.reduce((s, l) => s + l.bytes[i], 0))
-    const axis = byteAxis(Math.max(0, ...tops))
     return {
       grid: { left: 8, right: 12, top: 12, bottom: 4, containLabel: true },
       tooltip: {
         ...c.tooltip,
         trigger: 'axis',
-        axisPointer: { type: 'line', lineStyle: { color: c.axis, width: 1 } },
+        axisPointer: dayPointer(c),
         order: 'seriesDesc',
         formatter: (raw) => {
           const params = raw as { dataIndex: number }[]
@@ -50,19 +49,7 @@ export default function TrendChart({ trend, from, height = 300 }: { trend: Trend
         },
       },
       xAxis: timeAxis(days, c),
-      yAxis: {
-        type: 'value',
-        min: 0,
-        max: axis.max,
-        interval: axis.interval,
-        axisLabel: {
-          color: c.muted,
-          fontFamily: chartFont,
-          fontSize: 11,
-          formatter: (v: number) => formatAxisBytes(v),
-        },
-        splitLine: { lineStyle: { color: c.grid } },
-      },
+      yAxis: byteValueAxis(Math.max(0, ...tops), c),
       series: layers.map((l) => ({
         type: 'line',
         name: l.name,
@@ -74,15 +61,7 @@ export default function TrendChart({ trend, from, height = 300 }: { trend: Trend
         areaStyle: {
           color: l.colour,
           opacity: 0.92,
-          decal: l.hatch
-            ? {
-                symbol: 'rect',
-                dashArrayX: [1, 0],
-                dashArrayY: [2, 4],
-                rotation: -Math.PI / 4,
-                color: 'rgba(0,0,0,0.22)',
-              }
-            : undefined,
+          decal: l.hatch ? hatchDecal : undefined,
         },
         emphasis: { disabled: true },
       })),

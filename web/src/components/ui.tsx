@@ -1,5 +1,6 @@
 import { type ButtonHTMLAttributes, type ReactNode, useEffect, useId, useRef } from 'react'
 import { CloseIcon, WarningIcon } from './icons.tsx'
+import { hatchCss } from '../charts/hatch.ts'
 
 // The building blocks every page shares.
 
@@ -112,9 +113,7 @@ export function Swatch({
         width: size,
         height: size,
         backgroundColor: colour,
-        backgroundImage: hatch
-          ? 'repeating-linear-gradient(135deg, rgba(0,0,0,0.28) 0 1.5px, transparent 1.5px 4px)'
-          : undefined,
+        backgroundImage: hatch ? hatchCss : undefined,
       }}
     />
   )
