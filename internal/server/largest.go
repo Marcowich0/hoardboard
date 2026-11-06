@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/Marcowich0/hoardboard/internal/category"
 	"github.com/Marcowich0/hoardboard/internal/tree"
 )
 
@@ -35,7 +36,12 @@ func (s *Server) handleLargest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no folder "+path)
 		return
 	}
-	writeJSON(w, http.StatusOK, largestJSON{Path: path, Files: largestFiles(t, f, path)})
+	assigned, err := s.cats.Assignments(r.Context())
+	if err != nil {
+		s.categoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, largestJSON{Path: path, Files: largestFiles(t, f, path, assigned)})
 }
 
 // largestCount is how many files GET /api/largest answers.
@@ -43,8 +49,8 @@ const largestCount = 20
 
 // largestFiles lists the largestCount largest physical files below f,
 // largest first, then by path. A hardlinked file is listed once, by its
-// first path in name order.
-func largestFiles(t *tree.Tree, f *tree.Folder, path string) []fileEntryJSON {
+// first path in name order, in the category of that name's Folder.
+func largestFiles(t *tree.Tree, f *tree.Folder, path string, assigned category.Assignments) []fileEntryJSON {
 	type identity struct {
 		disk     tree.DiskID
 		dev, ino uint64
@@ -98,6 +104,7 @@ func largestFiles(t *tree.Tree, f *tree.Folder, path string) []fileEntryJSON {
 		}
 		i, _ := slices.BinarySearchFunc(top, e, before)
 		if i < largestCount {
+			e.CategoryID = categoryOf(assigned, dir)
 			top = slices.Insert(top, i, e)[:min(len(top)+1, largestCount)]
 		}
 	})

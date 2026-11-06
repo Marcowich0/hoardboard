@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Marcowich0/hoardboard/internal/category"
 	"github.com/Marcowich0/hoardboard/internal/tree"
 )
 
@@ -21,8 +22,8 @@ type treeJSON struct {
 	Children []any      `json:"children"` // folderEntryJSON, then fileEntryJSON
 }
 
-// folderJSON is FolderInfo. Change and Category come with History and the
-// category engine; until then they are null.
+// folderJSON is FolderInfo. Change comes with History; until then it is
+// null.
 type folderJSON struct {
 	Path        string          `json:"path"`
 	Name        string          `json:"name"`
@@ -31,7 +32,15 @@ type folderJSON struct {
 	Items       int64           `json:"items"`
 	SharedBytes int64           `json:"sharedBytes"`
 	Disks       []diskBytesJSON `json:"disks"`
-	Category    *struct{}       `json:"category"`
+	// Category is null when the Folder is Uncategorized.
+	Category *folderCategoryJSON `json:"category"`
+}
+
+// folderCategoryJSON is a Folder's effective category and the path of the
+// Assignment that decides it: its own or an ancestor's.
+type folderCategoryJSON struct {
+	CategoryID   category.ID `json:"categoryId"`
+	AssignedPath string      `json:"assignedPath"`
 }
 
 type diskBytesJSON struct {
@@ -48,17 +57,20 @@ type folderEntryJSON struct {
 	Items       int64           `json:"items"`
 	SharedBytes int64           `json:"sharedBytes"`
 	Disks       []diskBytesJSON `json:"disks"`
-	CategoryID  *int64          `json:"categoryId"`
+	// CategoryID is its effective category, null for Uncategorized.
+	CategoryID *category.ID `json:"categoryId"`
 }
 
 type fileEntryJSON struct {
-	Kind       string `json:"kind"` // "file"
-	Name       string `json:"name"`
-	Path       string `json:"path"`
-	Size       int64  `json:"size"`
-	Disk       string `json:"disk"`
-	Links      uint32 `json:"links"`
-	CategoryID *int64 `json:"categoryId"`
+	Kind  string `json:"kind"` // "file"
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	Disk  string `json:"disk"`
+	Links uint32 `json:"links"`
+	// CategoryID is the effective category of the Folder holding this
+	// name, null for Uncategorized.
+	CategoryID *category.ID `json:"categoryId"`
 }
 
 var periods = []string{"7d", "30d", "1y"}
@@ -92,11 +104,16 @@ func (s *Server) handleTree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "no folder "+path)
 		return
 	}
+	assigned, err := s.cats.Assignments(r.Context())
+	if err != nil {
+		s.categoryError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, treeJSON{
 		Path:     path,
 		Period:   period,
-		Folder:   folderInfoJSON(t, f, path),
-		Children: childrenJSON(t, f, path),
+		Folder:   folderInfoJSON(t, f, path, assigned),
+		Children: childrenJSON(t, f, path, assigned),
 	})
 }
 
@@ -113,7 +130,11 @@ func validPath(p string) bool {
 	return true
 }
 
-func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string) folderJSON {
+func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string, assigned category.Assignments) folderJSON {
+	var c *folderCategoryJSON
+	if id, at, ok := assigned.Of(path); ok {
+		c = &folderCategoryJSON{CategoryID: id, AssignedPath: at}
+	}
 	return folderJSON{
 		Path:        path,
 		Name:        f.Name,
@@ -121,11 +142,12 @@ func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string) folderJSON {
 		Items:       f.Items,
 		SharedBytes: f.SharedBytes,
 		Disks:       disksJSON(t, f),
+		Category:    c,
 	}
 }
 
 // childrenJSON lists f's subfolders, then its files, each largest first.
-func childrenJSON(t *tree.Tree, f *tree.Folder, path string) []any {
+func childrenJSON(t *tree.Tree, f *tree.Folder, path string, assigned category.Assignments) []any {
 	join := func(name string) string {
 		if path == "" {
 			return name
@@ -147,6 +169,7 @@ func childrenJSON(t *tree.Tree, f *tree.Folder, path string) []any {
 			Items:       c.Items,
 			SharedBytes: c.SharedBytes,
 			Disks:       disksJSON(t, c),
+			CategoryID:  categoryOf(assigned, join(c.Name)),
 		})
 	}
 	for _, file := range files {
@@ -157,9 +180,20 @@ func childrenJSON(t *tree.Tree, f *tree.Folder, path string) []any {
 			Size:  file.Bytes,
 			Disk:  t.Disks[file.Disk],
 			Links: file.Links,
+			// A file is in its Folder's category.
+			CategoryID: categoryOf(assigned, path),
 		})
 	}
 	return out
+}
+
+// categoryOf is the effective category of the Folder at path, nil when it
+// is Uncategorized.
+func categoryOf(assigned category.Assignments, path string) *category.ID {
+	if id, _, ok := assigned.Of(path); ok {
+		return &id
+	}
+	return nil
 }
 
 // disksJSON is where f's bytes are, largest first; Disks holding none of
