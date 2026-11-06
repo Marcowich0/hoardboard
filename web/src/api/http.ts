@@ -1,5 +1,4 @@
-// The real hoardboard server. Each endpoint here replaces its fake one in
-// ./index.ts once the server has it.
+// The hoardboard server, endpoint by endpoint; ./index.ts puts them together as `api`.
 
 import { ApiError } from './errors.ts'
 import type {
@@ -114,3 +113,10 @@ export const assign = (path: string, categoryId: number) =>
 /** DELETE /api/assignments?path=: removes a Folder's Assignment. */
 export const unassign = (path: string) =>
   sendJSON<void>('DELETE', `/api/assignments?${new URLSearchParams({ path }).toString()}`)
+
+/**
+ * POST /api/assignments/repoint: moves a Missing Assignment to the folder it is
+ * called now; that folder's History before it appeared becomes the old one's.
+ */
+export const repoint = (from: string, to: string) =>
+  sendJSON<void>('POST', '/api/assignments/repoint', { from, to })

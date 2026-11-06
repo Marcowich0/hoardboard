@@ -95,7 +95,6 @@ real capability and real mounts, which Seam 1 can only fake. It uses `jq`.
 
 `cd web && npm test` runs `web/src/**/*.test.ts` with Node's own test runner
 (`node:test`, TypeScript run as is). They cover pure logic only: the size and
-time formatters, axis steps, paths and sorting in `web/src/lib/`, and the
-in-browser fake API in `web/src/api/fake/`, tested through its `Api`, the
-same way Seam 1 tests the server. Write them like the Go tests: behaviour
-through the public function, expected values as literals.
+time formatters, axis steps, paths and sorting in `web/src/lib/`. The API
+itself is tested on the server (Seam 1). Write them like the Go tests:
+behaviour through the public function, expected values as literals.

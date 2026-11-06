@@ -1,6 +1,6 @@
 // The JSON the hoardboard API sends and accepts, one section per endpoint of
-// spec #1. Pages use only these shapes, through `api` in ./index.ts, so a
-// page can move from the fake data to the real server without changing.
+// spec #1. Pages use only these shapes, through `api` in ./index.ts. Keep
+// them in step with the Go handlers (internal/server).
 //
 // Sizes are bytes (numbers: JSON numbers are exact up to 8 PiB). Days are
 // "YYYY-MM-DD", times are RFC 3339. Paths are Share paths relative to the
@@ -251,7 +251,11 @@ export interface Api {
   assign(path: string, categoryId: number): Promise<void>
   /** DELETE /api/assignments?path= */
   unassign(path: string): Promise<void>
-  /** POST /api/assignments/repoint: moves a (Missing) Assignment to another folder. */
+  /**
+   * POST /api/assignments/repoint with `{ from, to }`: moves a Missing Assignment to the folder
+   * it is called now (in the latest Scan, with no Assignment of its own). Before that folder
+   * appeared, its History is the old folder's.
+   */
   repoint(from: string, to: string): Promise<void>
   scanStatus(): Promise<ScanStatus>
   scanNow(): Promise<ScanRequestResult>

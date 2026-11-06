@@ -46,7 +46,6 @@ day's Unaccounted is 0.
 - Rows written before this change have `single_bytes` 0, and those days have
   no link sets. The app had no deployment then, so no backfill exists.
 - Link sets name Folders by path, and the engine reads them only through
-  `Assignments.Of`. A re-pointed Assignment (ticket #14) that joins the old
-  Folder's History to the new one's must also treat link sets' old paths, up
-  to the re-point day, as the new Folder's paths.
+  `Assignments.Of`. A re-pointed Assignment joins the old Folder's History
+  to the new one's, link sets included: see ADR 0006.
 - Changing Rank re-splits the whole trend, not only days to come.

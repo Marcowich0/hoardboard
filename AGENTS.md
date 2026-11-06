@@ -43,10 +43,9 @@ Without `-tags webdist`, the binary embeds the stub page in `web/stub`, so
 ## Web app rules
 
 - Pages get data only through `api` from `web/src/api/index.ts`, typed by
-  `web/src/api/types.ts`. Until an endpoint exists on the server, its line in
-  `index.ts` points at the in-browser fake (`web/src/api/fake/`); wiring a
-  page to the server means adding the endpoint to `web/src/api/http.ts` and
-  pointing that line at it. Keep `types.ts` and the Go handlers in step.
+  `web/src/api/types.ts`. Each endpoint is a function in
+  `web/src/api/http.ts` with a line in `index.ts`. Keep `types.ts` and the
+  Go handlers in step.
 - Sizes go through `formatBytes`/`formatChange` (`web/src/lib/format.ts`):
   binary units only (KiB, MiB, GiB, TiB).
 - Category colours come from `useCategories().look(id)` (`web/src/categories.ts`),
@@ -88,11 +87,11 @@ internal/db/          opens hoardboard.db; Migrate(ctx, db, module, steps) per m
 internal/inventory/   the Disks Unraid lists (disks.ini, var.ini) and their live Used/Free space (statfs)
 internal/tree/        the merged tree of Share paths: Builder (the merger), Finish (Size with each hardlinked file once, items, bytes per Disk, Shared bytes, Hardlinks), snapshot codec
 internal/scan/        Scanner: one Scan at a time (Start joins a running one), metadata-only walk, scans + snapshot tables
-internal/history/     daily History of every Folder (folders + folder_history), of the hardlinked files by their Folders (link_sets + link_history) and of each Disk's Used space (disk_history), written by a Scan's AfterScans; Series carries values forward
+internal/history/     daily History of every Folder (folders + folder_history), of the hardlinked files by their Folders (link_sets + link_history) and of each Disk's Used space (disk_history), written by a Scan's AfterScans; Series carries values forward; renames, kept when an Assignment is re-pointed, which reads follow
 internal/server/      HTTP server: one file per feature, routes added from init()
 internal/apitest/     Seam 1 test harness: fake mount root, fake Unraid status, fake clock
 web/                  React + Vite + TypeScript + Tailwind app; web.go embeds web/dist (-tags webdist)
-  src/api/            THE data boundary: types.ts (the API's JSON), index.ts (each endpoint: real or fake), fake/
+  src/api/            THE data boundary: types.ts (the API's JSON), http.ts (each endpoint), index.ts (`api`)
   src/categories.ts   the one source of category names and colours (colours: src/lib/colours.ts)
   src/lib/            pure helpers with node tests: sizes (binary units), days, paths, sorting, axes
   src/charts/         ECharts wrappers; every chart is ECharts

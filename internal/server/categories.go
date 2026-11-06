@@ -2,6 +2,7 @@ package server
 
 import (
 	"cmp"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -19,6 +20,7 @@ func init() {
 		s.mux.HandleFunc("DELETE /api/categories/{id}", s.handleDeleteCategory)
 		s.mux.HandleFunc("POST /api/assignments", s.handleAssign)
 		s.mux.HandleFunc("DELETE /api/assignments", s.handleUnassign)
+		s.mux.HandleFunc("POST /api/assignments/repoint", s.handleRepoint)
 	})
 }
 
@@ -148,6 +150,49 @@ func (s *Server) handleAssign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.cats.Assign(r.Context(), in.Path, in.CategoryID); err != nil {
+		s.categoryError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// repointJSON is the body of POST /api/assignments/repoint.
+type repointJSON struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
+// handleRepoint moves a Missing Assignment to the Folder of the latest Scan
+// it is called now, and answers 204. The Folder's History before it
+// existed becomes the old Folder's (docs/adr/0006-re-point-carries-history.md).
+func (s *Server) handleRepoint(w http.ResponseWriter, r *http.Request) {
+	var in repointJSON
+	if !readJSONBody(w, r, &in) {
+		return
+	}
+	for _, p := range []string{in.From, in.To} {
+		if p == "" || !validPath(p) {
+			writeError(w, http.StatusBadRequest, `from, to: want a Folder's Share path such as "data/media", without leading or trailing "/"`)
+			return
+		}
+	}
+	t := s.scans.Tree()
+	if t == nil {
+		writeError(w, http.StatusNotFound, "no folder "+in.To+": nothing is scanned yet")
+		return
+	}
+	if _, ok := t.Lookup(in.To); !ok {
+		writeError(w, http.StatusNotFound, "no folder "+in.To)
+		return
+	}
+	if _, ok := t.Lookup(in.From); ok {
+		writeError(w, http.StatusConflict, in.From+" is not Missing: the latest Scan found it")
+		return
+	}
+	err := s.cats.Repoint(r.Context(), in.From, in.To, func(tx *sql.Tx) error {
+		return s.history.Rename(r.Context(), tx, in.To, in.From)
+	})
+	if err != nil {
 		s.categoryError(w, err)
 		return
 	}

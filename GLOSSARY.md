@@ -46,6 +46,10 @@ _Avoid_: Priority, weight
 The link putting one folder into one category; a folder has at most one, and the most specific assignment wins over an ancestor's.
 _Avoid_: Mapping, membership
 
+**Missing**:
+An assignment whose folder the latest scan no longer finds, usually because it was renamed. Re-pointing it moves it to the folder's new path, which takes over the old path's history for the days before it appeared.
+_Avoid_: Broken, orphaned, stale
+
 **Uncategorized**:
 The automatic category holding every byte not covered by an assignment.
 _Avoid_: Other, unassigned
