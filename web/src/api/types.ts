@@ -36,11 +36,11 @@ export interface Overview {
 }
 
 /**
- * What GET /api/overview answers so far: the live disk figures and the
- * forecast. The donut and trend come with the category engine; until then
- * ./index.ts takes them from the fake.
+ * What GET /api/overview answers so far: the live disk figures, the donut
+ * and the forecast. The trend comes with a later ticket; until then
+ * ./index.ts takes it from the fake.
  */
-export type LiveOverview = Pick<Overview, 'today' | 'totals' | 'disks' | 'parity' | 'forecast' | 'forecastDays'>
+export type LiveOverview = Pick<Overview, 'today' | 'totals' | 'disks' | 'parity' | 'donut' | 'forecast' | 'forecastDays'>
 
 export interface Disk {
   /** "disk1"… or "cache". */
@@ -66,7 +66,7 @@ export interface ParityDisk {
  * highest-ranked one, so the parts never overlap.
  */
 export interface UsedSplit {
-  /** In Rank order. */
+  /** Every category, in Rank order. */
   categories: { categoryId: number; bytes: number }[]
   uncategorized: number
   unaccounted: number
@@ -237,7 +237,7 @@ export interface Api {
   createCategory(input: CategoryInput): Promise<Category>
   updateCategory(id: number, input: Partial<CategoryInput>): Promise<Category>
   deleteCategory(id: number): Promise<void>
-  /** PUT /api/categories/order: every category id, highest Rank first. */
+  /** PUT /api/categories/order with `{ ids }`: every category id once, highest Rank first. */
   reorderCategories(ids: number[]): Promise<void>
   /** POST /api/assignments: puts a folder into a category (replacing its current one). */
   assign(path: string, categoryId: number): Promise<void>

@@ -191,6 +191,40 @@ func (s *Store) Delete(ctx context.Context, id ID) error {
 	return tx.Commit()
 }
 
+// Reorder sets every category's Rank: ids is every category id once,
+// highest Rank first.
+func (s *Store) Reorder(ctx context.Context, ids []ID) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var n int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM categories`).Scan(&n); err != nil {
+		return err
+	}
+	if len(ids) != n {
+		return fail(ErrInvalid, "The order must name every category once: there are %d, it names %d", n, len(ids))
+	}
+	seen := make(map[ID]bool, len(ids))
+	for i, id := range ids {
+		if seen[id] {
+			return fail(ErrInvalid, "The order names category %d twice", id)
+		}
+		seen[id] = true
+		res, err := tx.ExecContext(ctx, `UPDATE categories SET rank = ? WHERE id = ?`, i+1, id)
+		if err != nil {
+			return err
+		}
+		if changed, err := res.RowsAffected(); err != nil {
+			return err
+		} else if changed == 0 {
+			return fail(ErrInvalid, "The order names category %d, which doesn't exist", id)
+		}
+	}
+	return tx.Commit()
+}
+
 // Assign puts the Folder at path into the category id, replacing its own
 // Assignment if it has one. Subfolders assigned elsewhere keep theirs.
 func (s *Store) Assign(ctx context.Context, path string, id ID) error {

@@ -1,9 +1,11 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	"github.com/Marcowich0/hoardboard/internal/category"
 	"github.com/Marcowich0/hoardboard/internal/inventory"
 )
 
@@ -13,7 +15,7 @@ func init() {
 
 // overviewResponse is the answer of GET /api/overview (Overview in
 // web/src/api/types.ts). For now it holds what comes live from the disks
-// and the forecast; the donut and trend come with the category engine.
+// and the donut and forecast; the trend comes with a later ticket.
 type overviewResponse struct {
 	// Today is the server's day, "YYYY-MM-DD".
 	Today string `json:"today"`
@@ -23,12 +25,27 @@ type overviewResponse struct {
 	Disks  []diskJSON `json:"disks"`
 	// Parity is information only: size and status, no Used or Free space.
 	Parity []parityJSON `json:"parity"`
+	// Donut is Totals.Used split by category (UsedSplit).
+	Donut donutJSON `json:"donut"`
 	// Forecast is the growth rate and the day the array is full, fitted to
 	// the last 90 days of total Used space; null with fewer than 7 daily
 	// points, or when Used space isn't growing (see forecast.go).
 	Forecast *forecastJSON `json:"forecast"`
 	// ForecastDays is the daily points of total Used space the fit had.
 	ForecastDays int `json:"forecastDays"`
+}
+
+// donutJSON is UsedSplit: the parts add up to Totals.Used.
+type donutJSON struct {
+	// Categories is every category in Rank order.
+	Categories    []donutPartJSON `json:"categories"`
+	Uncategorized int64           `json:"uncategorized"`
+	Unaccounted   int64           `json:"unaccounted"`
+}
+
+type donutPartJSON struct {
+	CategoryID category.ID `json:"categoryId"`
+	Bytes      int64       `json:"bytes"`
 }
 
 type spaceJSON struct {
@@ -90,11 +107,41 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		resp.Totals.Used += js.Used
 		resp.Totals.Free += js.Free
 	}
-	resp.Forecast, resp.ForecastDays, err = s.forecast(r.Context(), s.today(), resp.Totals.Size)
+	if resp.Donut, err = s.donut(r.Context(), resp.Totals.Used); err == nil {
+		resp.Forecast, resp.ForecastDays, err = s.forecast(r.Context(), s.today(), resp.Totals.Size)
+	}
 	if err != nil {
 		s.log.Error("overview", "err", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// donut splits used, the live Used space, by category in the latest Scan's
+// tree: Shared bytes go to the highest-Ranked category they are in, and
+// what the Scan didn't see is Unaccounted.
+func (s *Server) donut(ctx context.Context, used int64) (donutJSON, error) {
+	list, err := s.cats.List(ctx)
+	if err != nil {
+		return donutJSON{}, err
+	}
+	assigned, err := s.cats.Assignments(ctx)
+	if err != nil {
+		return donutJSON{}, err
+	}
+	ranked := make([]category.ID, len(list))
+	for i, c := range list {
+		ranked[i] = c.ID
+	}
+	split := category.Measure(s.scans.Tree(), assigned).Split(ranked, used)
+	out := donutJSON{
+		Categories:    make([]donutPartJSON, len(split.Categories)),
+		Uncategorized: split.Uncategorized,
+		Unaccounted:   split.Unaccounted,
+	}
+	for i, p := range split.Categories {
+		out.Categories[i] = donutPartJSON{CategoryID: p.ID, Bytes: p.Bytes}
+	}
+	return out, nil
 }

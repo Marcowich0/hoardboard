@@ -36,7 +36,10 @@ export default function AddToCategory({
     setError(null)
     try {
       if (choice === 'new') {
-        const created = await api.createCategory(draft)
+        // Pick the new category at once, so that if assigning fails, Add
+        // retries the assign instead of making the category twice.
+        const created = await change(api.createCategory(draft))
+        setChoice(created.id)
         await change(api.assign(path, created.id))
       } else if (choice !== null) {
         await change(api.assign(path, choice))
@@ -51,9 +54,12 @@ export default function AddToCategory({
 
   const remove = async () => {
     setBusy(true)
+    setError(null)
     try {
       await change(api.unassign(path))
       onClose()
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
