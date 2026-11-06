@@ -41,6 +41,8 @@ jobs:
         run: npm run lint
       - name: Typecheck
         run: npm run typecheck
+      - name: Test
+        run: npm test
       - name: Build
         run: npm run build
       # A high or critical advisory fails the build, including dev

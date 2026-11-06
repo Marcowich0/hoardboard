@@ -64,4 +64,14 @@ fixture, then checks `/api/health` and the app's routes.
 - `t.Parallel()` in every test; no fixed sleeps. Time moves through `app.Clock`.
 - Expected values come from the fixture you built (a literal), never recomputed
   the way the code computes them.
-- The web app has lint and typecheck only in v1, no browser tests.
+- The web app has lint, typecheck and unit tests of pure logic in v1, no
+  browser tests (see below).
+
+## The web app's unit tests
+
+`cd web && npm test` runs `web/src/**/*.test.ts` with Node's own test runner
+(`node:test`, TypeScript run as is). They cover pure logic only: the size and
+time formatters, axis steps, paths and sorting in `web/src/lib/`, and the
+in-browser fake API in `web/src/api/fake/`, tested through its `Api`, the
+same way Seam 1 tests the server. Write them like the Go tests: behaviour
+through the public function, expected values as literals.

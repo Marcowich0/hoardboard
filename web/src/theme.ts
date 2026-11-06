@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import type { Theme } from './lib/colours.ts'
 
-export type Theme = 'dark' | 'light'
+export type { Theme }
 
 const STORAGE_KEY = 'hoardboard.theme'
 
@@ -38,4 +39,11 @@ export function useTheme() {
   }, [])
 
   return { theme, toggle }
+}
+
+/** The theme in effect, for what CSS can't switch by itself (chart colours). */
+export const ThemeContext = createContext<Theme>('dark')
+
+export function useCurrentTheme(): Theme {
+  return useContext(ThemeContext)
 }
