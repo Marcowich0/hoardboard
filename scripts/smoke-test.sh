@@ -2,8 +2,9 @@
 # Container smoke test (Seam 2 in spec #1): starts IMAGE the way the owner's
 # compose file does (every capability dropped except DAC_READ_SEARCH, a
 # read-only root filesystem, /mnt and the Unraid status folder mounted
-# read-only) over a tiny fixture, and checks GET /api/health, GET /api/overview
-# and the app's routes.
+# read-only) over a tiny fixture, and checks GET /api/health, GET /api/overview,
+# a Scan and the tree it makes (a Folder merged across Disks, a root-only
+# folder counted, a nested mount not crossed), and the app's routes.
 #
 #   scripts/smoke-test.sh IMAGE [REVISION]
 #
@@ -23,18 +24,27 @@ cleanup() {
     docker logs "$name" >&2 || true
   fi
   docker rm -f -v "$name" >/dev/null 2>&1 || true
+  chmod -R u+rwX "$fixture" 2>/dev/null || true
   rm -rf "$fixture"
   exit "$status"
 }
 trap cleanup EXIT
 
 # A tiny fake Unraid: two data disks and a cache pool with share folders, and
-# the status files emhttpd writes.
+# the status files emhttpd writes. data/media/movies is on disk1 and disk2;
+# appdata/private is root-only; data/elsewhere is where another filesystem
+# gets mounted, which a Scan must not enter; data/media/loop is a symlink.
 mkdir -p "$fixture/mnt/disk1/data/media/movies" "$fixture/mnt/disk2/data/media/tv" \
-  "$fixture/mnt/cache/appdata/hoardboard" "$fixture/emhttp"
+  "$fixture/mnt/disk2/data/media/movies" "$fixture/mnt/cache/appdata/hoardboard" \
+  "$fixture/mnt/cache/appdata/private" "$fixture/mnt/disk1/data/elsewhere" \
+  "$fixture/elsewhere" "$fixture/emhttp"
 head -c 1048576 /dev/urandom > "$fixture/mnt/disk1/data/media/movies/a.mkv"
+head -c 262144 /dev/urandom > "$fixture/mnt/disk2/data/media/movies/c.mkv"
 head -c 524288 /dev/urandom > "$fixture/mnt/disk2/data/media/tv/b.mkv"
 head -c 4096 /dev/urandom > "$fixture/mnt/cache/appdata/hoardboard/c.db"
+head -c 8192 /dev/urandom > "$fixture/mnt/cache/appdata/private/secret.db"
+head -c 65536 /dev/urandom > "$fixture/elsewhere/big.img"
+ln -s /mnt "$fixture/mnt/disk1/data/media/loop"
 section() { # name idx type mounted
   printf '["%s"]\nname="%s"\nidx="%s"\ndevice="sd%s"\nsize="3907018532"\nstatus="DISK_OK"\ntype="%s"\n' "$1" "$1" "$2" "$2" "$3"
   if [ "$4" = yes ]; then printf 'fsStatus="Mounted"\nfsMountpoint="/mnt/%s"\n' "$1"; fi
@@ -48,6 +58,8 @@ section() { # name idx type mounted
 printf 'mdState="STARTED"\nfsState="Started"\nmdResync="0"\nmdResyncPos="0"\nmdResyncAction="check P"\nshareMoverActive="no"\n' \
   > "$fixture/emhttp/var.ini"
 chmod -R a+rX "$fixture"
+# Only CAP_DAC_READ_SEARCH lets the container list it.
+chmod 000 "$fixture/mnt/cache/appdata/private"
 
 docker run -d --name "$name" \
   --cap-drop ALL --cap-add DAC_READ_SEARCH \
@@ -55,6 +67,7 @@ docker run -d --name "$name" \
   --read-only --tmpfs /tmp \
   -p 127.0.0.1::8098 \
   -v "$fixture/mnt:/mnt:ro" \
+  -v "$fixture/elsewhere:/mnt/disk1/data/elsewhere:ro" \
   -v "$fixture/emhttp:/var/local/emhttp:ro" \
   "$image" >/dev/null
 
@@ -103,6 +116,35 @@ case "$overview" in
   *'"parity":[{"name":"parity",'*) ;;
   *) echo "overview does not list parity" >&2; exit 1 ;;
 esac
+
+# A Scan, waited for, and the tree it makes.
+scan=$(curl -fsS -X POST "$url/api/scan?wait=true")
+echo "scan: $scan"
+jq -e '.status.last.id == 1 and .status.running == null' <<<"$scan" >/dev/null \
+  || { echo "the scan did not finish" >&2; exit 1; }
+
+# One Folder data/media/movies, its bytes on disk1 and disk2.
+media=$(curl -fsS "$url/api/tree?path=data/media")
+echo "tree data/media: $media"
+jq -e '.children[] | select(.name == "movies")
+  | .kind == "folder" and .size == 1310720
+    and .disks == [{"disk": "disk1", "bytes": 1048576}, {"disk": "disk2", "bytes": 262144}]' \
+  <<<"$media" >/dev/null || { echo "data/media/movies is not one Folder over disk1 and disk2" >&2; exit 1; }
+# The symlink is listed, not followed.
+jq -e '.folder.size == 1835008 and ([.children[] | select(.name == "loop")][0].kind == "file")' \
+  <<<"$media" >/dev/null || { echo "data/media: wrong size, or the symlink was followed" >&2; exit 1; }
+
+# The root-only folder is counted.
+private=$(curl -fsS "$url/api/tree?path=appdata/private")
+echo "tree appdata/private: $private"
+jq -e '.folder.size == 8192 and .children[0].name == "secret.db"' <<<"$private" >/dev/null \
+  || { echo "the root-only folder appdata/private was not counted" >&2; exit 1; }
+
+# The filesystem mounted at data/elsewhere is not walked.
+data=$(curl -fsS "$url/api/tree?path=data")
+echo "tree data: $data"
+jq -e '[.children[].name] == ["media"] and .folder.size == 1835008' <<<"$data" >/dev/null \
+  || { echo "the scan crossed into the mount at data/elsewhere" >&2; exit 1; }
 
 # The embedded app answers its client routes.
 for path in / /categories /explorer; do

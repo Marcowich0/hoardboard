@@ -79,9 +79,11 @@ export function createFakeApi(world: FakeWorld, options: FakeOptions = {}): Api 
   const assignments = new Map(world.assignments.map((a) => [a.path, a.categoryId]))
   let nextId = Math.max(0, ...categories.map((c) => c.id)) + 1
 
+  let scanId = 1
   const scan: ScanStatus = {
     running: null,
     last: {
+      id: scanId,
       startedAt: new Date(Date.parse(world.scan.finishedAt) - world.scan.durationMs).toISOString(),
       finishedAt: world.scan.finishedAt,
       durationMs: world.scan.durationMs,
@@ -443,10 +445,12 @@ export function createFakeApi(world: FakeWorld, options: FakeOptions = {}): Api 
       scan.skipped = { at, reason }
       return { status: structuredClone(scan), started: false }
     }
-    scan.running = { startedAt: at }
+    const id = ++scanId
+    scan.running = { id, startedAt: at }
     setTimeout(() => {
       const finishedAt = now()
       scan.last = {
+        id,
         startedAt: at,
         finishedAt: finishedAt.toISOString(),
         durationMs: finishedAt.getTime() - Date.parse(at),

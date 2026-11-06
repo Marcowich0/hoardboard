@@ -194,16 +194,19 @@ export interface CategoryInput {
 
 export interface ScanStatus {
   /** Set while a Scan runs. */
-  running: { startedAt: string } | null
+  running: { id: number; startedAt: string } | null
   /** The last Scan that finished. */
-  last: { startedAt: string; finishedAt: string; durationMs: number } | null
+  last: { id: number; startedAt: string; finishedAt: string; durationMs: number } | null
   /** The latest skipped Scan, if it came after `last`. */
   skipped: { at: string; reason: string } | null
-  /** When the next scheduled Scan is due. */
-  next: string
+  /** When the next scheduled Scan is due; null while nothing is scheduled. */
+  next: string | null
 }
 
-/** POST /api/scan: started, or skipped with the reason. */
+/**
+ * POST /api/scan: started (or joined the Scan already running), or skipped
+ * with the reason. It answers at once; GET /api/scan tells when it ends.
+ */
 export interface ScanRequestResult {
   status: ScanStatus
   started: boolean
