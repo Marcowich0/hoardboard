@@ -20,8 +20,8 @@ type scanStatus struct {
 		FinishedAt string `json:"finishedAt"`
 		DurationMs int64  `json:"durationMs"`
 	} `json:"last"`
-	Skipped *struct{} `json:"skipped"`
-	Next    *string   `json:"next"`
+	Skipped *skippedScan `json:"skipped"`
+	Next    *string      `json:"next"`
 }
 
 type scanRequest struct {

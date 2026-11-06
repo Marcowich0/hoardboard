@@ -55,6 +55,32 @@ func insertRunning(ctx context.Context, d *sql.DB, started time.Time) (int64, er
 	return res.LastInsertId()
 }
 
+// insertSkipped records a Scan skipped at because of array work, and returns
+// its id.
+func insertSkipped(ctx context.Context, d *sql.DB, at time.Time, reason string) (int64, error) {
+	res, err := d.ExecContext(ctx, `INSERT INTO scans (started, finished, status, skip_reason)
+		VALUES (?, ?, 'skipped', ?)`, at.UnixMilli(), at.UnixMilli(), reason)
+	if err != nil {
+		return 0, fmt.Errorf("record skipped scan: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// lastSkipped is the latest skipped Scan, ok false if none was.
+func lastSkipped(ctx context.Context, d *sql.DB) (Skip, bool, error) {
+	var id, at int64
+	var reason string
+	err := d.QueryRowContext(ctx, `SELECT id, started, skip_reason FROM scans
+		WHERE status = 'skipped' ORDER BY id DESC LIMIT 1`).Scan(&id, &at, &reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Skip{}, false, nil
+	}
+	if err != nil {
+		return Skip{}, false, err
+	}
+	return Skip{ID: id, At: time.UnixMilli(at), Reason: reason}, true, nil
+}
+
 // markFailed records that the Scan id ended without a tree.
 func markFailed(ctx context.Context, d *sql.DB, id int64, finished time.Time) error {
 	_, err := d.ExecContext(ctx, `UPDATE scans SET status = 'failed', finished = ? WHERE id = ?`, finished.UnixMilli(), id)

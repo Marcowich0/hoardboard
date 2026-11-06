@@ -56,6 +56,10 @@ type Config struct {
 	// Clock is the source of "now". No variable sets it: nil means the
 	// system clock, and tests inject a fake.
 	Clock clock.Clock
+	// NoSchedule turns scheduled Scans off, so that Scans run only when
+	// asked for. No variable sets it: tests turn it on, so that a server
+	// doesn't scan on its own.
+	NoSchedule bool
 }
 
 // FromEnv reads the configuration through getenv (os.Getenv in production).
