@@ -26,7 +26,7 @@ import (
 //   - folder_history.single_bytes: the Folder's SingleBytes, written with
 //     its Size; and link_sets and link_history, the hardlinked files (see
 //     links.go). With them, a category's past is measured under the current
-//     Assignments (docs/adr/0004-category-history.md).
+//     Assignments (docs/adr/0005-category-history.md).
 var migrations = []string{
 	`CREATE TABLE folders (
 		id   INTEGER PRIMARY KEY,

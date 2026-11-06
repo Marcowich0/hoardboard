@@ -24,7 +24,7 @@ type categoryPointJSON struct {
 
 // handleCategoryHistory answers a category's History: its full Size on each
 // day from the first Scan to today, under the current Assignments, each
-// physical file once (docs/adr/0004-category-history.md).
+// physical file once (docs/adr/0005-category-history.md).
 func (s *Server) handleCategoryHistory(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if q.Has("path") {

@@ -5,7 +5,7 @@
 // The engine never walks the Disks: a Folder's SingleBytes covers its files
 // with one name, and the hardlinked files cover the rest, each with the
 // Folder of every name (Bytes). A finished tree.Tree has both (Measure), and
-// so has History for every past day (docs/adr/0004-category-history.md).
+// so has History for every past day (docs/adr/0005-category-history.md).
 package category
 
 import (
