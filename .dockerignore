@@ -1,0 +1,7 @@
+.git
+.github
+.claude
+**/node_modules
+web/dist
+Dockerfile
+.dockerignore
