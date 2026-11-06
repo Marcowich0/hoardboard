@@ -245,6 +245,7 @@ export function createFakeApi(world: FakeWorld, options: FakeOptions = {}): Api 
       donut,
       trend,
       forecast: forecast(usedPerDay, totals.size, day),
+      forecastDays: Math.min(usedPerDay.length, 90),
     }
   }
 

@@ -88,7 +88,7 @@ internal/db/          opens hoardboard.db; Migrate(ctx, db, module, steps) per m
 internal/inventory/   the Disks Unraid lists (disks.ini, var.ini) and their live Used/Free space (statfs)
 internal/tree/        the merged tree of Share paths: Builder (the merger), Finish (Size with each hardlinked file once, items, bytes per Disk, Shared bytes, Hardlinks), snapshot codec
 internal/scan/        Scanner: one Scan at a time (Start joins a running one), metadata-only walk, scans + snapshot tables
-internal/history/     daily History of every Folder (folders + folder_history), written by a Scan's AfterScan; Series carries values forward
+internal/history/     daily History of every Folder (folders + folder_history) and of each Disk's Used space (disk_history), written by a Scan's AfterScans; Series carries values forward
 internal/server/      HTTP server: one file per feature, routes added from init()
 internal/apitest/     Seam 1 test harness: fake mount root, fake Unraid status, fake clock
 web/                  React + Vite + TypeScript + Tailwind app; web.go embeds web/dist (-tags webdist)

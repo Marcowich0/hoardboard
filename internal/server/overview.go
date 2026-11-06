@@ -12,8 +12,8 @@ func init() {
 }
 
 // overviewResponse is the answer of GET /api/overview (Overview in
-// web/src/api/types.ts). For now it holds what comes live from the disks;
-// the donut, trend and forecast come with the category engine.
+// web/src/api/types.ts). For now it holds what comes live from the disks
+// and the forecast; the donut and trend come with the category engine.
 type overviewResponse struct {
 	// Today is the server's day, "YYYY-MM-DD".
 	Today string `json:"today"`
@@ -23,6 +23,12 @@ type overviewResponse struct {
 	Disks  []diskJSON `json:"disks"`
 	// Parity is information only: size and status, no Used or Free space.
 	Parity []parityJSON `json:"parity"`
+	// Forecast is the growth rate and the day the array is full, fitted to
+	// the last 90 days of total Used space; null with fewer than 7 daily
+	// points, or when Used space isn't growing (see forecast.go).
+	Forecast *forecastJSON `json:"forecast"`
+	// ForecastDays is the daily points of total Used space the fit had.
+	ForecastDays int `json:"forecastDays"`
 }
 
 type spaceJSON struct {
@@ -83,6 +89,12 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		resp.Totals.Size += js.Size
 		resp.Totals.Used += js.Used
 		resp.Totals.Free += js.Free
+	}
+	resp.Forecast, resp.ForecastDays, err = s.forecast(r.Context(), s.today(), resp.Totals.Size)
+	if err != nil {
+		s.log.Error("overview", "err", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

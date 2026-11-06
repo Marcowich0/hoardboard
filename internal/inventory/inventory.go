@@ -22,12 +22,21 @@ import (
 type Inventory struct {
 	mountRoot string
 	statusDir string
+	statfs    Statfs
 }
 
-// New returns an Inventory that finds each Disk at <mountRoot>/<name> and
-// reads Unraid's status files from statusDir.
-func New(mountRoot, statusDir string) *Inventory {
-	return &Inventory{mountRoot: mountRoot, statusDir: statusDir}
+// Statfs asks the filesystem at path how full it is: unix.Statfs, or a fake
+// in tests.
+type Statfs func(path string, st *unix.Statfs_t) error
+
+// New returns an Inventory that finds each Disk at <mountRoot>/<name>, reads
+// Unraid's status files from statusDir and asks each Disk's filesystem how
+// full it is through statfs (nil for unix.Statfs).
+func New(mountRoot, statusDir string, statfs Statfs) *Inventory {
+	if statfs == nil {
+		statfs = unix.Statfs
+	}
+	return &Inventory{mountRoot: mountRoot, statusDir: statusDir, statfs: statfs}
 }
 
 // Kind is what a Disk is to the array.
@@ -46,6 +55,8 @@ type Disk struct {
 	Filesystem string // "xfs", "btrfs"
 	// Path is the Disk's folder: <mount root>/<name>.
 	Path string
+
+	statfs Statfs // the Inventory's
 }
 
 // Space is what a filesystem reports, in bytes. Used+Free can be less than
@@ -135,6 +146,7 @@ func (inv *Inventory) Read() (Array, error) {
 			Kind:       kind,
 			Filesystem: s.vals["fsType"],
 			Path:       filepath.Join(inv.mountRoot, name),
+			statfs:     inv.statfs,
 		})
 	}
 	return a, nil
@@ -175,8 +187,12 @@ func validName(name string) bool {
 
 // Space asks the Disk's filesystem how full it is, live. It reads no file.
 func (d Disk) Space() (Space, error) {
+	statfs := d.statfs
+	if statfs == nil {
+		statfs = unix.Statfs
+	}
 	var st unix.Statfs_t
-	if err := unix.Statfs(d.Path, &st); err != nil {
+	if err := statfs(d.Path, &st); err != nil {
 		return Space{}, fmt.Errorf("disk %s: %w", d.Name, err)
 	}
 	bs := int64(st.Frsize)
