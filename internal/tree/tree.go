@@ -1,6 +1,6 @@
 // Package tree is the merged tree of Share paths that a Scan produces: every
-// Folder and file the Disks hold, with each Folder's Size, item count and
-// bytes per Disk.
+// Folder and file the Disks hold, with each Folder's Size, item count, bytes
+// per Disk and Shared bytes.
 //
 // A Tree is built once, with a Builder, and never changes after Finish, so
 // any number of goroutines can read it while the next Scan builds another.
@@ -44,13 +44,22 @@ type Folder struct {
 
 	// Computed by Finish.
 
-	// Size is the bytes of every file below it. Folders' own blocks are not
-	// in it: they are filesystem overhead, Unaccounted.
+	// Size is the bytes of every file below it, each physical file once
+	// however many of its names are below it, as du counts. Folders' own
+	// blocks are not in it: they are filesystem overhead, Unaccounted.
 	Size int64
+	// SingleBytes is the part of Size in files with one name (st_nlink 1).
+	// The rest of Size is the Tree's Hardlinks with a name below it, each
+	// once. Unlike Size, SingleBytes adds up: a Folder's is its own files'
+	// plus its subfolders'.
+	SingleBytes int64
 	// Items is how many folders and files are below it, at any depth.
 	Items int64
 	// DiskBytes is Size split by Disk, indexed by DiskID.
 	DiskBytes []int64
+	// SharedBytes is the part of Size in files that also have a name
+	// outside this Folder.
+	SharedBytes int64
 
 	index map[string]*Folder // while building only
 }
@@ -60,6 +69,29 @@ type Tree struct {
 	// Disks names the Disks the Scan walked ("disk1", "cache"), by DiskID.
 	Disks []string
 	Root  *Folder
+	// Hardlinks are the files with more than one name, in tree order.
+	Hardlinks []Hardlink
+}
+
+// Hardlink is one physical file with more than one name (st_nlink > 1).
+// Its identity is (Disk, Dev, Ino): the same inode number on two Disks, or
+// on two btrfs subvolumes of one Disk, is two files.
+type Hardlink struct {
+	Disk     DiskID
+	Dev, Ino uint64
+	Bytes    int64
+	// Links is how many names it has: st_nlink, or how many the Scan saw if
+	// that is more (it changed during the Scan). Names the Scan did not see,
+	// in a folder it could not list or outside the Shares, count too.
+	Links int
+	// Folders holds the Folder of each name the Scan saw, in tree order; a
+	// Folder holding two of its names is in it twice.
+	Folders []*Folder
+}
+
+type identity struct {
+	disk     DiskID
+	dev, ino uint64
 }
 
 // Path is the Folder's Share path: "data/media/movies", "" for the root.
@@ -128,32 +160,75 @@ func (b *Builder) File(folder *Folder, f File) {
 	folder.Files = append(folder.Files, f)
 }
 
-// Finish sorts the tree and computes every Folder's Size, Items and
-// DiskBytes. The Builder must not be used afterwards.
+// Finish sorts the tree and computes every Folder's Size, SingleBytes,
+// Items, DiskBytes and Shared bytes, and the Tree's Hardlinks. The Builder
+// must not be used afterwards.
 func (b *Builder) Finish() *Tree {
 	t := b.t
 	b.t = Tree{}
-	finish(t.Root, len(t.Disks))
+	index := map[identity]int{}
+	finish(t.Root, len(t.Disks), &t.Hardlinks, index)
+	addHardlinks(t.Hardlinks)
 	return &t
 }
 
-func finish(f *Folder, disks int) {
+// finish sorts f's subtree and sums its files with one name; it collects
+// the files with several into links, by identity through index.
+func finish(f *Folder, disks int, links *[]Hardlink, index map[identity]int) {
 	f.index = nil
 	slices.SortFunc(f.Folders, func(a, b *Folder) int { return strings.Compare(a.Name, b.Name) })
 	slices.SortStableFunc(f.Files, func(a, b File) int { return cmp.Compare(a.Name, b.Name) })
 	f.DiskBytes = make([]int64, disks)
 	for i := range f.Files {
 		file := &f.Files[i]
+		if file.Links > 1 {
+			id := identity{file.Disk, file.Dev, file.Ino}
+			n, ok := index[id]
+			if !ok {
+				n = len(*links)
+				index[id] = n
+				*links = append(*links, Hardlink{Disk: file.Disk, Dev: file.Dev, Ino: file.Ino, Bytes: file.Bytes})
+			}
+			l := &(*links)[n]
+			l.Links = max(l.Links, int(file.Links))
+			l.Folders = append(l.Folders, f)
+			continue
+		}
 		f.Size += file.Bytes
 		f.DiskBytes[file.Disk] += file.Bytes
 	}
 	f.Items = int64(len(f.Files) + len(f.Folders))
 	for _, c := range f.Folders {
-		finish(c, disks)
+		finish(c, disks, links, index)
 		f.Size += c.Size
 		f.Items += c.Items
 		for d, n := range c.DiskBytes {
 			f.DiskBytes[d] += n
+		}
+	}
+	f.SingleBytes = f.Size
+}
+
+// addHardlinks adds each Hardlink once to the Size and DiskBytes of every
+// Folder holding at least one of its names, and to the SharedBytes of those
+// holding only some of them.
+func addHardlinks(links []Hardlink) {
+	seen := map[*Folder]int{}
+	for i := range links {
+		l := &links[i]
+		l.Links = max(l.Links, len(l.Folders))
+		clear(seen)
+		for _, f := range l.Folders {
+			for g := f; g != nil; g = g.Parent {
+				seen[g]++
+			}
+		}
+		for g, names := range seen {
+			g.Size += l.Bytes
+			g.DiskBytes[l.Disk] += l.Bytes
+			if names < l.Links {
+				g.SharedBytes += l.Bytes
+			}
 		}
 	}
 }
