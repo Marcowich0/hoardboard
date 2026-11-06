@@ -33,6 +33,13 @@ export interface Overview {
   forecast: Forecast | null
 }
 
+/**
+ * What GET /api/overview answers so far: the live disk figures. The donut,
+ * trend and forecast come with the category engine; until then ./index.ts
+ * takes them from the fake.
+ */
+export type LiveOverview = Pick<Overview, 'today' | 'totals' | 'disks' | 'parity'>
+
 export interface Disk {
   /** "disk1"… or "cache". */
   name: string

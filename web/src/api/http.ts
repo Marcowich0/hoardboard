@@ -2,7 +2,7 @@
 // ./index.ts once the server has it.
 
 import { ApiError } from './errors.ts'
-import type { HealthReport } from './types.ts'
+import type { HealthReport, LiveOverview } from './types.ts'
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const response = await fetch(url, {
@@ -43,3 +43,6 @@ export async function health(): Promise<HealthReport> {
     throw err
   }
 }
+
+/** GET /api/overview: the Disks, parity and totals, live from the filesystems. */
+export const overview = () => getJSON<LiveOverview>('/api/overview')

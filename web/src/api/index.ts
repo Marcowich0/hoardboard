@@ -16,7 +16,12 @@ const fake = createFakeApi(makeWorld(new Date()), { latencyMs: 180 })
 
 export const api: Api = {
   health: http.health, // real
-  overview: fake.overview, // fake until the category engine and API ticket
+  // Real totals, disk bars and parity; the donut, trend and forecast stay
+  // fake until the category engine and API ticket.
+  overview: async () => {
+    const [live, made] = await Promise.all([http.overview(), fake.overview()])
+    return { ...made, ...live }
+  },
   tree: fake.tree,
   largest: fake.largest,
   folderHistory: fake.folderHistory,
