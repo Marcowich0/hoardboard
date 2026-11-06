@@ -22,8 +22,7 @@ type treeJSON struct {
 }
 
 // folderJSON is FolderInfo. Change and Category come with History and the
-// category engine; until then they are null, and SharedBytes is 0 until
-// hardlinks are counted once.
+// category engine; until then they are null.
 type folderJSON struct {
 	Path        string          `json:"path"`
 	Name        string          `json:"name"`
@@ -116,11 +115,12 @@ func validPath(p string) bool {
 
 func folderInfoJSON(t *tree.Tree, f *tree.Folder, path string) folderJSON {
 	return folderJSON{
-		Path:  path,
-		Name:  f.Name,
-		Size:  f.Size,
-		Items: f.Items,
-		Disks: disksJSON(t, f),
+		Path:        path,
+		Name:        f.Name,
+		Size:        f.Size,
+		Items:       f.Items,
+		SharedBytes: f.SharedBytes,
+		Disks:       disksJSON(t, f),
 	}
 }
 
@@ -140,12 +140,13 @@ func childrenJSON(t *tree.Tree, f *tree.Folder, path string) []any {
 	out := make([]any, 0, len(folders)+len(files))
 	for _, c := range folders {
 		out = append(out, folderEntryJSON{
-			Kind:  "folder",
-			Name:  c.Name,
-			Path:  join(c.Name),
-			Size:  c.Size,
-			Items: c.Items,
-			Disks: disksJSON(t, c),
+			Kind:        "folder",
+			Name:        c.Name,
+			Path:        join(c.Name),
+			Size:        c.Size,
+			Items:       c.Items,
+			SharedBytes: c.SharedBytes,
+			Disks:       disksJSON(t, c),
 		})
 	}
 	for _, file := range files {
