@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Disk } from '../api/index.ts'
 import { formatBytes, formatShare } from '../lib/format.ts'
+import { escapeHtml } from '../lib/html.ts'
 import { useCurrentTheme } from '../theme.ts'
 import { chartFont, chrome } from './chrome.ts'
 import EChart, { type ChartOption } from './EChart.tsx'
@@ -32,7 +33,7 @@ export default function DiskChart({ disks }: { disks: Disk[] }) {
         trigger: 'item',
         formatter: (p) => {
           const d = disks[(p as { dataIndex: number }).dataIndex]
-          return `<b>${d.name}</b> · ${d.filesystem}<br/>${formatBytes(d.used)} used · ${formatBytes(d.free)} free<br/><span style="color:${c.muted}">${formatBytes(d.size)} in all</span>`
+          return `<b>${escapeHtml(d.name)}</b> · ${escapeHtml(d.filesystem)}<br/>${formatBytes(d.used)} used · ${formatBytes(d.free)} free<br/><span style="color:${c.muted}">${formatBytes(d.size)} in all</span>`
         },
       },
       xAxis: { type: 'value', max: largest, show: false },
