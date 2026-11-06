@@ -175,19 +175,27 @@ describe('tree', () => {
 })
 
 describe('history', () => {
-  test('one point a day from the first Scan', async () => {
+  test('one point a day from the first Scan, with Shared bytes', async () => {
     const api = createFakeApi(world(), { now })
-    const { points } = await api.folderHistory('data/media/movies')
+    const { path, points } = await api.folderHistory('data/media/movies')
+    assert.equal(path, 'data/media/movies')
     assert.equal(points.length, 37)
-    assert.deepEqual(points[0], { day: '2026-10-01', size: 10 * GiB })
-    assert.deepEqual(points.at(-1), { day: '2026-11-06', size: 16 * GiB })
+    // a.mkv is hardlinked into torrents: shared; b.mkv (from 2026-11-01) is not.
+    assert.deepEqual(points[0], { day: '2026-10-01', size: 10 * GiB, sharedBytes: 10 * GiB })
+    assert.deepEqual(points.at(-1), { day: '2026-11-06', size: 16 * GiB, sharedBytes: 10 * GiB })
     assert.deepEqual(
       points.find((p) => p.day === '2026-11-01'),
-      { day: '2026-11-01', size: 16 * GiB },
+      { day: '2026-11-01', size: 16 * GiB, sharedBytes: 10 * GiB },
     )
     assert.deepEqual(
       points.find((p) => p.day === '2026-10-31'),
-      { day: '2026-10-31', size: 10 * GiB },
+      { day: '2026-10-31', size: 10 * GiB, sharedBytes: 10 * GiB },
     )
+  })
+
+  test('a folder holding every name of a hardlinked file shares none of it', async () => {
+    const api = createFakeApi(world(), { now })
+    const { points } = await api.folderHistory('data')
+    assert.deepEqual(points.at(-1), { day: '2026-11-06', size: 18 * GiB, sharedBytes: 0 })
   })
 })
