@@ -13,7 +13,7 @@ import (
 // categoryHistoryJSON is the answer of GET /api/history?category= (History
 // in web/src/api/types.ts, with the category's id).
 type categoryHistoryJSON struct {
-	CategoryID category.ID        `json:"categoryId"`
+	CategoryID category.ID         `json:"categoryId"`
 	Points     []categoryPointJSON `json:"points"`
 }
 

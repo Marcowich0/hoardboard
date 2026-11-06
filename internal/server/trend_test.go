@@ -109,3 +109,32 @@ func TestTheTrendSplitsEachDayByRankAndAReorderSplitsThePastAgain(t *testing.T) 
 		movies.ID:   {1 * unit, 1 * unit},
 	})
 }
+
+func TestEachDaysUnaccountedIsThatDaysUsedSpaceLessWhatItsScanSaw(t *testing.T) {
+	t.Parallel()
+	app := apitest.Start(t)
+	app.Mount.SetSpace("disk2", 1000*unit, 50*unit)
+	app.Mount.SetSpace("cache", 1000*unit, 10*unit)
+
+	app.Mount.SetSpace("disk1", 1000*unit, 100*unit)
+	app.Mount.File("disk1", "data/a.bin", 3*unit)
+	app.Scan(t) // 2026-03-02: Used 160 units, 3 seen
+
+	app.Clock.Advance(day)
+	app.Mount.SetSpace("disk1", 1000*unit, 120*unit)
+	app.Mount.File("disk1", "data/b.bin", 2*unit)
+	app.Scan(t) // 2026-03-03: Used 180 units, 5 seen
+
+	// 2026-03-04, no Scan: today's Used space is live.
+	app.Clock.Advance(day)
+	app.Mount.SetSpace("disk1", 1000*unit, 130*unit)
+
+	got := getTrend(t, app)
+	want := []int64{157 * unit, 175 * unit, 185 * unit}
+	if !slices.Equal(got.Trend.Unaccounted, want) {
+		t.Errorf("unaccounted = %v, want %v", got.Trend.Unaccounted, want)
+	}
+	if u := []int64{3 * unit, 5 * unit, 5 * unit}; !slices.Equal(got.Trend.Uncategorized, u) {
+		t.Errorf("uncategorized = %v, want %v", got.Trend.Uncategorized, u)
+	}
+}

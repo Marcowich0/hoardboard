@@ -77,3 +77,42 @@ func TestAnUnknownCategoryHasNoHistory(t *testing.T) {
 	app.GetJSON(t, "/api/history?category=movies", http.StatusBadRequest, nil)
 	app.GetJSON(t, "/api/history?category=1&path=data", http.StatusBadRequest, nil)
 }
+
+func TestReassigningAFolderRecalculatesTheCategorysPast(t *testing.T) {
+	t.Parallel()
+	app := apitest.Start(t)
+	app.Mount.File("disk1", "data/media/movies/a.mkv", 2*unit)
+	app.Mount.File("disk2", "data/media/tv/s.mkv", 1*unit)
+	app.Scan(t) // 2026-03-02
+	movies := create(t, app, "Movies", "#e5484d")
+	tv := create(t, app, "TV", "#3e63dd")
+	assign(t, app, "data/media/movies", movies.ID)
+	assign(t, app, "data/media/tv", tv.ID)
+	app.Clock.Advance(day)
+	app.Mount.File("disk2", "data/media/tv/t.mkv", 4*unit)
+	app.Scan(t) // 2026-03-03
+
+	want := []sizeOn{{"2026-03-02", 2 * unit}, {"2026-03-03", 2 * unit}}
+	if got := categoryHistory(t, app, movies.ID); !slices.Equal(got, want) {
+		t.Fatalf("Movies before = %+v, want %+v", got, want)
+	}
+
+	// tv moves into Movies: Movies had it all along, TV never had anything.
+	assign(t, app, "data/media/tv", movies.ID)
+	want = []sizeOn{{"2026-03-02", 3 * unit}, {"2026-03-03", 7 * unit}}
+	if got := categoryHistory(t, app, movies.ID); !slices.Equal(got, want) {
+		t.Errorf("Movies with tv = %+v, want %+v", got, want)
+	}
+	if got := categoryHistory(t, app, tv.ID); !slices.Equal(got, []sizeOn{{"2026-03-02", 0}, {"2026-03-03", 0}}) {
+		t.Errorf("TV without tv = %+v, want zeros", got)
+	}
+
+	// A broader Assignment takes the rest of media; Movies' own stays.
+	media := create(t, app, "Media", "#30a46c")
+	assign(t, app, "data/media", media.ID)
+	send(t, app, http.MethodDelete, "/api/assignments?path=data/media/tv", nil, http.StatusNoContent, nil)
+	want = []sizeOn{{"2026-03-02", 1 * unit}, {"2026-03-03", 5 * unit}}
+	if got := categoryHistory(t, app, media.ID); !slices.Equal(got, want) {
+		t.Errorf("Media = %+v, want %+v", got, want)
+	}
+}

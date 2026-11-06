@@ -5,11 +5,12 @@ import { ApiError } from './errors.ts'
 import type {
   Categories,
   Category,
+  CategoryHistory,
   CategoryInput,
   FolderHistory,
   HealthReport,
   Largest,
-  LiveOverview,
+  Overview,
   Period,
   ScanRequestResult,
   ScanStatus,
@@ -57,10 +58,11 @@ export async function health(): Promise<HealthReport> {
 }
 
 /**
- * GET /api/overview: the Disks, parity and totals, live from the filesystems,
- * and the donut: that Used space split by category, Shared bytes to the higher Rank.
+ * GET /api/overview: the Disks, parity and totals, live from the filesystems;
+ * the donut, that Used space split by category (Shared bytes to the higher
+ * Rank); the same split per day (the trend); and the forecast.
  */
-export const overview = () => getJSON<LiveOverview>('/api/overview')
+export const overview = () => getJSON<Overview>('/api/overview')
 
 /** GET /api/tree: a Folder of the latest Scan, its subfolders and its files. */
 export const tree = (path: string, period: Period) =>
@@ -75,6 +77,10 @@ export const largest = (path: string) => getJSON<Largest>(`/api/largest?${new UR
 /** GET /api/history?path=: a Folder's Size and Shared bytes per day, from the first Scan that saw it to today. */
 export const folderHistory = (path: string) =>
   getJSON<FolderHistory>(`/api/history?${new URLSearchParams({ path }).toString()}`)
+
+/** GET /api/history?category=: a category's Size per day, from the first Scan to today, under today's Assignments. */
+export const categoryHistory = (categoryId: number) =>
+  getJSON<CategoryHistory>(`/api/history?${new URLSearchParams({ category: String(categoryId) }).toString()}`)
 
 /** GET /api/scan: whether a Scan runs, the last one that finished, the latest skip and the next one due. */
 export const scanStatus = () => getJSON<ScanStatus>('/api/scan')

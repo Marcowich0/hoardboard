@@ -35,13 +35,6 @@ export interface Overview {
   forecastDays: number
 }
 
-/**
- * What GET /api/overview answers so far: the live disk figures, the donut
- * and the forecast. The trend comes with a later ticket; until then
- * ./index.ts takes it from the fake.
- */
-export type LiveOverview = Pick<Overview, 'today' | 'totals' | 'disks' | 'parity' | 'donut' | 'forecast' | 'forecastDays'>
-
 export interface Disk {
   /** "disk1"… or "cache". */
   name: string
@@ -72,6 +65,12 @@ export interface UsedSplit {
   unaccounted: number
 }
 
+/**
+ * Used space per day from the first Scan to today, split like the donut under
+ * today's Assignments and Rank: each day's parts sum to that day's Used space,
+ * the last day's are the donut. A day's Unaccounted is 0 when its Used space
+ * wasn't recorded.
+ */
 export interface Trend {
   days: string[]
   /** One series per category in Rank order, then Uncategorized and Unaccounted. */
@@ -164,6 +163,15 @@ export interface History {
 export interface FolderHistory extends History {
   path: string
   points: { day: string; size: number; sharedBytes: number }[]
+}
+
+/**
+ * GET /api/history?category=: a category's full Size per day, each physical
+ * file once, computed from History under today's Assignments, so a
+ * reassigned folder changes the past as well.
+ */
+export interface CategoryHistory extends History {
+  categoryId: number
 }
 
 // /api/categories ------------------------------------------------------------

@@ -10,29 +10,6 @@ import (
 	"github.com/Marcowich0/hoardboard/internal/tree"
 )
 
-// linkMigrations are the tables of the hardlinked files' History, the part
-// of a past day that Folders' Sizes can't tell: which categories share a
-// file depends on the Folders of its names. Append only (see db.Migrate).
-//
-//   - link_sets: a set of Folders, by path (a JSON array, sorted), that the
-//     names of some hardlinked files are in. Kept forever.
-//   - link_history: the bytes of the hardlinked files whose names are in
-//     exactly the set's Folders, from day on, written on change as
-//     folder_history is (changeOn); a set no Scan finds any more gets a row
-//     of zeros.
-var linkMigrations = []string{
-	`CREATE TABLE link_sets (
-		id      INTEGER PRIMARY KEY,
-		folders TEXT NOT NULL UNIQUE
-	);
-	CREATE TABLE link_history (
-		set_id INTEGER NOT NULL REFERENCES link_sets (id),
-		day    INTEGER NOT NULL,
-		bytes  INTEGER NOT NULL,
-		PRIMARY KEY (set_id, day)
-	) WITHOUT ROWID;`,
-}
-
 // LinkSet is the History of the hardlinked files whose names are in exactly
 // Folders: their bytes added up, per day.
 type LinkSet struct {
@@ -41,8 +18,12 @@ type LinkSet struct {
 	Series  Series[int64]
 }
 
-// recordLinks records t's hardlinked files as the History of today, grouped
-// by the set of Folders their names are in.
+// recordLinks records t's hardlinked files as the History of today, the
+// part of a past day that Folders' figures can't tell: which categories
+// share a file depends on the Folders of its names. Files whose names are in
+// the same set of Folders are one row in link_history (their bytes added
+// up), keyed by link_sets: the Folders' paths as a sorted JSON array. A set
+// no Scan finds any more gets a row of zeros, as a Folder does (changeOn).
 func recordLinks(ctx context.Context, tx *sql.Tx, today Day, t *tree.Tree) error {
 	now := map[string]int64{}
 	paths := map[*tree.Folder]string{}

@@ -1,10 +1,11 @@
 // Package category is the category engine and its store: the Categories the
 // owner defines, the Assignments that put Folders into them, and what each
-// category takes in a Scan's tree.
+// category takes in a Scan's tree or on a past day.
 //
-// The engine works on the finished tree.Tree and never walks the Disks
-// again: a Folder's SingleBytes covers its files with one name, and the
-// Tree's Hardlinks cover the rest, each with the Folder of every name.
+// The engine never walks the Disks: a Folder's SingleBytes covers its files
+// with one name, and the hardlinked files cover the rest, each with the
+// Folder of every name (Bytes). A finished tree.Tree has both (Measure), and
+// so has History for every past day (docs/adr/0004-category-history.md).
 package category
 
 import (
