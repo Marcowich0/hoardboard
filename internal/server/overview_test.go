@@ -174,19 +174,23 @@ func TestAListedDiskWithoutItsFolderIsLeftOut(t *testing.T) {
 func TestUsedSpaceIsLiveWithoutAScan(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t)
-	var before overview
-	app.GetJSON(t, "/api/overview", http.StatusOK, &before)
+	app.Mount.SetSpace("disk1", 1000*unit, 100*unit)
+	app.Mount.SetSpace("disk2", 1000*unit, 50*unit)
+	app.Mount.SetSpace("cache", 500*unit, 10*unit)
 
-	app.Mount.File("disk1", "data/media/big.mkv", 32*apitest.MiB)
-	var after overview
-	app.GetJSON(t, "/api/overview", http.StatusOK, &after)
-
-	// Other tests write to the same real filesystem at the same time, so only
-	// a lower bound holds: at least half the new file must show.
-	grew := after.Disks[0].Used - before.Disks[0].Used
-	if grew < 16*apitest.MiB {
-		t.Fatalf("disk1 used grew by %d bytes after writing 32 MiB, want at least 16 MiB", grew)
+	check := func(when string, used, free, totalUsed int64) {
+		t.Helper()
+		var got overview
+		app.GetJSON(t, "/api/overview", http.StatusOK, &got)
+		if len(got.Disks) == 0 || got.Disks[0].Name != "disk1" ||
+			got.Disks[0].Used != used || got.Disks[0].Free != free || got.Totals.Used != totalUsed {
+			t.Fatalf("%s: overview = %+v, want disk1 used %d, free %d, %d used in all", when, got, used, free, totalUsed)
+		}
 	}
+	check("at first", 100*unit, 900*unit, 160*unit)
+	// No Scan in between: the next request reads the filesystems afresh.
+	app.Mount.SetSpace("disk1", 1000*unit, 130*unit)
+	check("after disk1 filled up", 130*unit, 870*unit, 190*unit)
 }
 
 func TestOverviewFailsWithoutTheDiskStatus(t *testing.T) {
