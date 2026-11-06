@@ -1,33 +1,24 @@
 // THE data boundary. Pages get every piece of data through `api` and the
-// types in ./types.ts, and nothing else: no page imports ./fake or calls
-// fetch itself.
-//
-// Each endpoint below comes either from the real server (./http.ts) or from
-// the in-browser fake (./fake). To move an endpoint to the server, add it to
-// http.ts with the same signature and point its line here at it; pages don't
-// change. When the last line points at http, delete ./fake.
+// types in ./types.ts, and nothing else: no page calls fetch itself. Every
+// endpoint comes from the hoardboard server (./http.ts).
 
-import { createFakeApi } from './fake/fake.ts'
-import { makeWorld } from './fake/world.ts'
 import * as http from './http.ts'
 import type { Api } from './types.ts'
 
-const fake = createFakeApi(makeWorld(new Date()), { latencyMs: 180 })
-
 export const api: Api = {
-  health: http.health, // real
-  // Real totals, disk bars, parity, donut, trend and forecast.
+  health: http.health,
+  // Totals, disk bars, parity, donut, trend and forecast.
   overview: http.overview,
-  // Real folders, files, Size, items, Shared bytes, bytes per Disk, the
-  // change over the period and each one's effective category (null for
+  // Folders, files, Size, items, Shared bytes, bytes per Disk, the change
+  // over the period and each one's effective category (null for
   // Uncategorized).
   tree: http.tree,
-  largest: http.largest, // real, with each file's effective category
-  folderHistory: http.folderHistory, // real
-  // Real: from folder History under today's Assignments.
+  largest: http.largest, // with each file's effective category
+  folderHistory: http.folderHistory,
+  // From folder History under today's Assignments.
   categoryHistory: http.categoryHistory,
-  // Real: the category engine measures the latest Scan. Re-pointing comes
-  // with a later ticket.
+  // The category engine measures the latest Scan; Missing Assignments are
+  // flagged, and re-pointing one carries its folder's History over.
   categories: http.categories,
   createCategory: http.createCategory,
   updateCategory: http.updateCategory,
@@ -35,9 +26,9 @@ export const api: Api = {
   reorderCategories: http.reorderCategories,
   assign: http.assign,
   unassign: http.unassign,
-  repoint: fake.repoint,
-  scanStatus: http.scanStatus, // real
-  scanNow: http.scanNow, // real
+  repoint: http.repoint,
+  scanStatus: http.scanStatus,
+  scanNow: http.scanNow,
 }
 
 export { ApiError } from './errors.ts'

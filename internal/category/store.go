@@ -257,6 +257,40 @@ func (s *Store) Unassign(ctx context.Context, path string) error {
 	return nil
 }
 
+// Repoint moves the Assignment of the Folder at from to the Folder at to,
+// which must have none of its own. also runs inside the same transaction,
+// so what it records (History's rename, see history.Store.Rename) stands or
+// falls with the move.
+func (s *Store) Repoint(ctx context.Context, from, to string, also func(*sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var taken int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM assignments WHERE path = ?`, to).Scan(&taken); err != nil {
+		return err
+	}
+	if taken > 0 {
+		return fail(ErrConflict, "%s already has an Assignment", to)
+	}
+	res, err := tx.ExecContext(ctx, `UPDATE assignments SET path = ? WHERE path = ?`, to, from)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return fail(ErrNotFound, "%s has no Assignment", from)
+	}
+	if also != nil {
+		if err := also(tx); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func exists(ctx context.Context, tx *sql.Tx, id ID) error {
 	var one int
 	err := tx.QueryRowContext(ctx, `SELECT 1 FROM categories WHERE id = ?`, id).Scan(&one)

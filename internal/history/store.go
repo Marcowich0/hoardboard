@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/Marcowich0/hoardboard/internal/db"
 	"github.com/Marcowich0/hoardboard/internal/scan"
@@ -27,6 +28,9 @@ import (
 //     its Size; and link_sets and link_history, the hardlinked files (see
 //     links.go). With them, a category's past is measured under the current
 //     Assignments (docs/adr/0005-category-history.md).
+//   - renames: the Folder at path was the Folder at was before day, recorded
+//     when the owner re-points an Assignment (see renames.go,
+//     docs/adr/0006-re-point-carries-history.md). Kept forever.
 var migrations = []string{
 	`CREATE TABLE folders (
 		id   INTEGER PRIMARY KEY,
@@ -56,6 +60,12 @@ var migrations = []string{
 		bytes  INTEGER NOT NULL,
 		PRIMARY KEY (set_id, day)
 	) WITHOUT ROWID;`,
+	`CREATE TABLE renames (
+		id   INTEGER PRIMARY KEY,
+		path TEXT    NOT NULL,
+		was  TEXT    NOT NULL,
+		day  INTEGER NOT NULL
+	);`,
 }
 
 // Value is a Folder's figures on one day.
@@ -203,9 +213,43 @@ func latest(ctx context.Context, tx *sql.Tx, today Day) (map[string]stored, erro
 // on or before from onward: its At is exact for from and every later day.
 // Pass from 0 for a Folder's whole History.
 //
+// A Folder that was renamed (Rename) has, before the rename, the History of
+// the path it had then; the old path keeps its own History too.
+//
 // It reads every Folder in one query, so a category's History over many
 // Folders costs one index range per Folder.
 func (s *Store) Read(ctx context.Context, paths []string, from Day) (map[string]Series[Value], error) {
+	renames, err := s.Renames(ctx)
+	if err != nil || len(renames) == 0 {
+		if err != nil {
+			return nil, err
+		}
+		return s.readOwn(ctx, paths, from)
+	}
+	spans := make(map[string][]span, len(paths))
+	var own []string
+	for _, p := range paths {
+		spans[p] = renames.spans(p)
+		for _, sp := range spans[p] {
+			own = append(own, sp.path)
+		}
+	}
+	slices.Sort(own)
+	raw, err := s.readOwn(ctx, slices.Compact(own), from)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Series[Value], len(paths))
+	for _, p := range paths {
+		if series := splice(spans[p], raw); len(series.Rows) > 0 {
+			out[p] = series
+		}
+	}
+	return out, nil
+}
+
+// readOwn is Read without Renames: the rows stored under each path.
+func (s *Store) readOwn(ctx context.Context, paths []string, from Day) (map[string]Series[Value], error) {
 	list, err := json.Marshal(paths)
 	if err != nil {
 		return nil, err
