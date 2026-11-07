@@ -15,12 +15,15 @@ func init() {
 }
 
 // Treemap limits: at most treemapNodes nodes, at most treemapDepth levels
-// below the Folder, and nothing smaller than 1/treemapFraction of it (too
-// small to see as a tile); what is left out of a Folder is one "rest" node.
+// below the Folder, and nothing smaller than 1/treemapFraction of it; what is
+// left out of a Folder is one "rest" node. The web app fits what it gets to
+// the chart's size (web/src/lib/treemap.ts), so this sends more than any one
+// chart shows: a big chart can then show a folder of many movies as a grid
+// of small tiles rather than one rest.
 const (
-	treemapNodes    = 1500
-	treemapDepth    = 6
-	treemapFraction = 5000
+	treemapNodes    = 3000
+	treemapDepth    = 5
+	treemapFraction = 20000
 )
 
 // treemapJSON is the answer of GET /api/treemap (Treemap in

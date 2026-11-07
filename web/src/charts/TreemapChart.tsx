@@ -4,6 +4,7 @@ import { type CategoryBook, useCategories } from '../categories.ts'
 import { labelInk, mix, shade, type Theme, uncategorizedTints } from '../lib/colours.ts'
 import { formatBytes, formatCount, formatShare } from '../lib/format.ts'
 import { escapeHtml } from '../lib/html.ts'
+import { type FitNode, type FitRules, fitTreemap } from '../lib/treemap.ts'
 import { useCurrentTheme } from '../theme.ts'
 import { type Chrome, chartFont, chrome } from './chrome.ts'
 import EChart, { type ChartOption } from './EChart.tsx'
@@ -19,14 +20,29 @@ interface Tile {
   children?: Tile[]
 }
 
+/** What is drawn, for the chart's size: see fitTreemap. */
+const rules: FitRules = {
+  // About 33×33 px: smaller tiles join their Folder's rest, unless that
+  // would leave most of the Folder to it; then down to about 17×17 px.
+  minTile: 1100,
+  minDenseTile: 300,
+  denseShare: 0.4,
+  // About 95×95 px inside: a smaller Folder stays one tile.
+  minOpen: 9000,
+  maxDepth: 4,
+  frame: (depth) => ({ border: borderWidth(depth), header: headerHeight(depth) }),
+}
+
 /**
  * What a Folder holds, nested: each Folder's tile holds its own subfolders and
  * files, a few levels deep, so the big things show without opening anything
- * (the way WinDirStat draws a disk). Tiles are sized by Size; a Folder's tile
- * has a header with its name. Colour is the category; what no category
- * claims is drawn in muted tints, one per top-level branch, so neighbouring
- * folders still differ. Files are lighter than folders. Clicking a folder
- * opens it; clicking a file opens its folder.
+ * (the way WinDirStat draws a disk). Only what the chart has room for is
+ * drawn; each Folder's small items are one quiet "rest" tile in its colour.
+ * Tiles are sized by Size; an opened Folder's tile has a header with its
+ * name. Colour is the category; what no category claims is drawn in muted
+ * tints, one per top-level branch, so neighbouring folders still differ.
+ * Files are lighter than folders. Clicking a folder opens it; clicking a file
+ * opens its folder.
  */
 export default function TreemapChart({
   nodes,
@@ -57,18 +73,11 @@ export default function TreemapChart({
 
   const { option, byId } = useMemo(() => {
     const c = chrome(theme)
-    const byId = new Map<string, TreemapNode>()
-    const depthOf = new Map<string, number>()
-    const data = tiles(nodes, book, theme, c, byId, depthOf)
-    // A tile's area is about its share of the chart, less what the frames
-    // and headers above it take (about a fifth per level). Squarified tiles
-    // are near square, so the area says well enough whether a label fits;
-    // one that doesn't is left out rather than cut to a stub.
-    const roomFor = (id: string, px: number) => {
-      const n = byId.get(id)
-      if (!n || total <= 0) return false
-      return (n.size / total) * area * 0.8 ** ((depthOf.get(id) ?? 1) - 1) >= px
-    }
+    const byId = new Map<string, FitNode>()
+    const data = tiles(fitTreemap(nodes, area, rules), book, theme, c, byId)
+    // Squarified tiles are near square, so a tile's area says well enough
+    // whether a label fits; one that doesn't is left out, not cut to a stub.
+    const roomFor = (id: string, px: number) => (byId.get(id)?.px ?? 0) >= px
     const option: ChartOption = {
       tooltip: {
         ...c.tooltip,
@@ -95,9 +104,8 @@ export default function TreemapChart({
           nodeClick: false,
           breadcrumb: { show: false },
           squareRatio: 0.75,
-          // Tiles under ~100 px² aren't drawn; a Folder under ~2,000 px² shows no insides.
-          visibleMin: 100,
-          childrenVisibleMin: 2000,
+          // fitTreemap already left out what is too small.
+          visibleMin: 0,
           emphasis: { disabled: true },
           label: {
             show: true,
@@ -109,9 +117,9 @@ export default function TreemapChart({
             formatter: (p) => {
               const id = (p.data as { id: string }).id
               const n = byId.get(id)
-              if (!n || !roomFor(id, 2600)) return ''
-              if (n.kind === 'rest') return `{size|${formatCount(n.items ?? 0)} more}`
-              return roomFor(id, 5000)
+              if (!n || !roomFor(id, 2400)) return ''
+              if (n.kind === 'rest') return roomFor(id, 5500) ? `{size|${formatCount(n.items ?? 0)} more}` : ''
+              return roomFor(id, 5500)
                 ? `{name|${richSafe(n.name)}}\n{size|${formatBytes(n.size)}}`
                 : `{name|${richSafe(n.name)}}`
             },
@@ -126,8 +134,8 @@ export default function TreemapChart({
             formatter: (p) => {
               const id = (p.data as { id: string }).id
               const n = byId.get(id)
-              if (!n || !roomFor(id, 3500)) return ''
-              return roomFor(id, 9000) ? `{name|${richSafe(n.name)}}  {size|${formatBytes(n.size)}}` : `{name|${richSafe(n.name)}}`
+              if (!n || !roomFor(id, 4000)) return ''
+              return roomFor(id, 14000) ? `{name|${richSafe(n.name)}}  {size|${formatBytes(n.size)}}` : `{name|${richSafe(n.name)}}`
             },
           },
           // levels[1] is the Folder's children, levels[2] theirs, and so on:
@@ -135,10 +143,10 @@ export default function TreemapChart({
           levels: [
             // The Folder itself: no frame, no header.
             { itemStyle: { gapWidth: 3, borderWidth: 0, borderColor: c.surface }, upperLabel: { show: false } },
-            { itemStyle: { gapWidth: 2, borderWidth: 3, borderRadius: 5 }, upperLabel: { height: headerHeight(1) } },
-            { itemStyle: { gapWidth: 1, borderWidth: 2, borderRadius: 4 }, upperLabel: { height: headerHeight(2) } },
-            { itemStyle: { gapWidth: 1, borderWidth: 2, borderRadius: 3 }, upperLabel: { height: headerHeight(3) } },
-            { itemStyle: { gapWidth: 1, borderWidth: 1, borderRadius: 2 }, upperLabel: { height: headerHeight(4) } },
+            ...[1, 2, 3, 4].map((depth) => ({
+              itemStyle: { gapWidth: depth === 1 ? 2 : 1, borderWidth: borderWidth(depth), borderRadius: depth === 1 ? 4 : 2 },
+              upperLabel: { height: headerHeight(depth) },
+            })),
           ],
           data,
         },
@@ -155,32 +163,26 @@ export default function TreemapChart({
       label="What this folder holds, nested a few levels deep, sized by Size"
       onClick={(e) => {
         const node = e.data ? byId.get((e.data as { id: string }).id) : undefined
-        if (node && node.kind !== 'rest') onOpen(node)
+        if (node && node.kind !== 'rest') onOpen({ ...node, children: undefined })
       }}
       />
     </div>
   )
 }
 
-/** Builds the tiles for nodes and records each by id in byId, and its depth (1 for a child) in depthOf. */
-function tiles(
-  nodes: TreemapNode[],
-  book: CategoryBook,
-  theme: Theme,
-  c: Chrome,
-  byId: Map<string, TreemapNode>,
-  depthOf: Map<string, number>,
-): Tile[] {
+/** Builds the tiles for nodes and records each by id in byId. */
+function tiles(nodes: FitNode[], book: CategoryBook, theme: Theme, c: Chrome, byId: Map<string, FitNode>): Tile[] {
   let branch = 0
-  const build = (n: TreemapNode, id: string, depth: number, tint: string | null): Tile => {
+  // within is the base colour of the Folder the node is in; null at the top.
+  const build = (n: FitNode, id: string, depth: number, tint: string | null, within: string | null): Tile => {
     byId.set(id, n)
-    depthOf.set(id, depth)
     // The base colour: the category's; else the branch's muted tint (a new
     // one for each uncategorized top-level tile), a touch lighter each level
-    // down so nested tiles stand off their frame.
+    // down so nested tiles stand off their frame. The rest of a Folder is a
+    // quiet version of the Folder's colour: part of it, too small to show.
     let base: string
     if (n.kind === 'rest') {
-      base = c.grid
+      base = within ? mix(within, c.surface, 0.55) : c.grid
     } else if (n.categoryId !== null) {
       base = book.look(n.categoryId).colour
     } else {
@@ -201,7 +203,7 @@ function tiles(
       label: {
         rich: {
           name: { color: ink, fontSize: depth === 1 ? 13 : 12, fontWeight: 600, lineHeight: depth === 1 ? 18 : 16 },
-          size: { color: n.kind === 'rest' ? c.muted : ink, fontSize: 11, opacity: 0.85, lineHeight: 15 },
+          size: { color: ink, fontSize: 11, opacity: n.kind === 'rest' ? 0.7 : 0.85, lineHeight: 15 },
         },
       },
       upperLabel: {
@@ -214,11 +216,16 @@ function tiles(
     }
     if (n.children && n.children.length > 0) {
       const childTint = n.categoryId === null ? tint : null
-      tile.children = n.children.map((child, i) => build(child, `${id}.${i}`, depth + 1, childTint))
+      tile.children = n.children.map((child, i) => build(child, `${id}.${i}`, depth + 1, childTint, base))
     }
     return tile
   }
-  return nodes.map((n, i) => build(n, String(i), 1, null))
+  return nodes.map((n, i) => build(n, String(i), 1, null, null))
+}
+
+/** The width of a Folder's frame at depth (1 for a child of the treemap's Folder). */
+function borderWidth(depth: number): number {
+  return depth <= 1 ? 3 : depth <= 3 ? 2 : 1
 }
 
 /** The height of a Folder's header at depth (1 for a child of the treemap's Folder). */

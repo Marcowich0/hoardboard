@@ -82,7 +82,7 @@ func TestTheTreemapNestsFoldersLargestFirstWithTheirCategory(t *testing.T) {
 func TestTheTreemapFoldsWhatIsTooSmallToSeeIntoTheRest(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t)
-	// One big file, and 3 crumbs far below 1/5000 of the Share.
+	// One big file of 24,000 blocks, and 3 crumbs of 1 block: below 1/20000 of the Share.
 	app.Mount.File("disk1", "data/big.bin", 6000*unit)
 	for i := range 3 {
 		app.Mount.File("disk1", fmt.Sprintf("data/crumb%d", i), apitest.BlockSize)

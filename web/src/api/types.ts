@@ -153,8 +153,9 @@ export interface FileEntry {
 
 /**
  * A Folder of the latest Scan as a nested treemap: its children, and theirs,
- * the largest Folders opened first, up to about 1500 nodes. Items too small
- * to see fold into one "rest" node per Folder.
+ * the largest Folders opened first, up to about 3000 nodes. Items under
+ * 1/20000 of the Folder fold into one "rest" node per Folder. The chart
+ * shows what fits its size (lib/treemap.ts).
  */
 export interface Treemap {
   path: string
