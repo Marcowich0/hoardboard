@@ -6,8 +6,6 @@ One Go binary serves the API and the embedded React app. Categories, assignments
 
 [Deploy](#deploy-on-unraid) · [Configuration](#configuration) · [Usage](#first-scan-and-everyday-use) · [Storage accounting](#understanding-the-numbers) · [Maintenance](#updates-backups-and-health) · [Troubleshooting](#troubleshooting) · [Development](#development)
 
-![Overview of the deployed dashboard, with used and free space, per-disk charts and category totals](docs/images/overview.png)
-
 ## What it does
 
 - **Overview:** live Used space and Free space, per-disk category breakdowns, parity status, a category donut and a stacked history chart.
@@ -122,19 +120,13 @@ All configured paths must be absolute. If you only want a different browser-faci
 4. **Arrange Groups and Rank.** Put related Categories into a Group using the Category's **Edit** dialog, or use **New category in it** on a Group. Drag the Rank handles to reorder. Groups are one level deep and move with their Categories.
 5. **Return to Overview.** Category colours are consistent across the app. Select a Category in a chart to open its details. Use **Scan now** after storage changes when you want fresh Folder sizes; only one Scan runs at a time.
 
-These screenshots were captured from a running Unraid deployment. Folder assignments are blurred in Categories. Explorer's folder and file names, values and charts are blurred for privacy.
-
 ### Categories
-
-![Categories in the deployed dashboard, with a ranked list, a Media Group and its Categories; folder assignments are blurred](docs/images/categories.png)
 
 A Folder can be assigned to one Category. A more specific Assignment wins: for example, assigning `data/media` to Media and `data/media/movies` to Movies puts the movies in Movies and leaves the remaining content in Media. These are example folder names, not required paths.
 
 If an assigned Folder is renamed or deleted, its Assignment becomes **Missing**. For a rename, choose **Re-point to…** and select the new Folder to preserve its history. Removing an Assignment or deleting a Category changes organisation only; the app does not move or delete your files. Deleting a Group moves its Categories to the top level.
 
 ### Explorer
-
-![Explorer in the deployed dashboard, showing its treemap, per-disk chart, history and Contents table with all storage details blurred](docs/images/explorer-redacted.png)
 
 **What it holds** shows nested Folders and files sized by Size. **On disks** shows where a Folder's bytes live; **History** shows its daily Size. **Largest files** lists the largest physical files anywhere below the selected Folder, counting each once even when it has several hardlinks.
 
