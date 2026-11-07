@@ -261,15 +261,15 @@ func TestADeletedFoldersHistoryIsKept(t *testing.T) {
 func TestHistoryRecordsSharedBytes(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t)
-	app.Mount.File("disk1", "data/torrents/a.mkv", 2*unit)
+	app.Mount.File("disk1", "data/seeding/a.mkv", 2*unit)
 	app.Scan(t)
 	app.Clock.Advance(day)
-	app.Mount.Link("disk1", "data/torrents/a.mkv", "data/media/a.mkv")
+	app.Mount.Link("disk1", "data/seeding/a.mkv", "data/media/a.mkv")
 	app.Scan(t)
 
 	want := []point{{"2026-03-02", 2 * unit, 0}, {"2026-03-03", 2 * unit, 2 * unit}}
-	if got := folderHistory(t, app, "data/torrents"); !slices.Equal(got, want) {
-		t.Errorf("torrents history = %+v, want %+v", got, want)
+	if got := folderHistory(t, app, "data/seeding"); !slices.Equal(got, want) {
+		t.Errorf("seeding history = %+v, want %+v", got, want)
 	}
 	want = []point{{"2026-03-02", 2 * unit, 0}, {"2026-03-03", 2 * unit, 0}}
 	if got := folderHistory(t, app, "data"); !slices.Equal(got, want) {

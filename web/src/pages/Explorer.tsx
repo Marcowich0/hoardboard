@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, type Entry, type Period, type Tree, type TreemapNode } from '../api/index.ts'
+import { api, type CountedIn, type Entry, type Period, type Tree, type TreemapNode } from '../api/index.ts'
 import { useApi } from '../api/useApi.ts'
 import { useCategories } from '../categories.ts'
 import DiskSplitChart from '../charts/DiskSplitChart.tsx'
@@ -88,7 +88,7 @@ function ExplorerBody({ tree, period, loading }: { tree: Tree; period: Period; l
   const isRoot = tree.path === ''
 
   const openTile = (node: TreemapNode) => {
-    const folder = node.kind === 'folder' ? node.path : parentPath(node.path)
+    const folder = node.countedIn?.path ?? (node.kind === 'folder' ? node.path : parentPath(node.path))
     if (folder !== tree.path) navigate(explorerHref(folder, period))
   }
   const setPeriod = (p: Period) => {
@@ -155,11 +155,24 @@ function ExplorerBody({ tree, period, loading }: { tree: Tree; period: Period; l
         />
         <Fact label="Items" value={formatCount(folder.items)} detail="folders and files below" />
         <Fact
-          label="Shared bytes"
-          value={formatBytes(folder.sharedBytes)}
-          detail={folder.sharedBytes > 0 ? 'also hardlinked outside it' : 'nothing hardlinked elsewhere'}
+          label={(folder.countedElsewhereBytes ?? 0) > 0 ? 'Counted elsewhere' : 'Shared bytes'}
+          value={formatBytes(folder.countedElsewhereBytes || folder.sharedBytes)}
+          detail={(folder.countedElsewhereBytes ?? 0) > 0 ? 'seeding here · excluded from Size' : folder.sharedBytes > 0 ? 'also hardlinked outside it' : 'nothing hardlinked elsewhere'}
         />
       </div>
+
+      {(folder.countedElsewhereBytes ?? 0) > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-dashed border-line px-4 py-3 text-sm">
+          <LinkIcon size={18} className="mt-0.5 shrink-0 text-muted" />
+          <div>
+            <p className="font-medium">Seeding here, counted elsewhere</p>
+            <p className="mt-1 text-[13px] text-muted">
+              {formatBytes(folder.countedElsewhereBytes ?? 0)} is hardlinked outside torrents and excluded from this folder’s Size.
+              {' '}Outlined rows and hatched tiles stay visible; file colours show the category where they count.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
         <WhatItHolds tree={tree} onOpen={openTile} />
@@ -199,7 +212,8 @@ function WhatItHolds({ tree, onOpen }: { tree: Tree; onOpen: (node: TreemapNode)
     const ids = new Set<number>()
     const walk = (nodes: TreemapNode[]) => {
       for (const n of nodes) {
-        if (n.categoryId !== null) ids.add(n.categoryId)
+        const id = n.countedIn ? n.countedIn.categoryId : n.categoryId
+        if (id !== null) ids.add(id)
         if (n.children) walk(n.children)
       }
     }
@@ -211,7 +225,9 @@ function WhatItHolds({ tree, onOpen }: { tree: Tree; onOpen: (node: TreemapNode)
     <Card
       className="lg:col-span-2"
       title="What it holds"
-      subtitle="Each folder shows what is inside it, sized by Size. Click a tile to open its folder."
+      subtitle={(tree.folder.countedElsewhereBytes ?? 0) > 0
+        ? 'Hatched tiles are seeding files counted elsewhere. Click a file to open where it counts.'
+        : 'Each folder shows what is inside it, sized by Size. Click a tile to open its folder.'}
       bodyClassName="p-3 sm:p-4"
     >
       {tree.children.length === 0 ? (
@@ -236,6 +252,12 @@ function WhatItHolds({ tree, onOpen }: { tree: Tree; onOpen: (node: TreemapNode)
               </span>
               Uncategorized
             </li>
+            {(tree.folder.countedElsewhereBytes ?? 0) > 0 && (
+              <li className="flex items-center gap-1.5">
+                <span aria-hidden="true" className="h-3 w-4 rounded border border-dashed border-current" />
+                Counted elsewhere
+              </li>
+            )}
             <li className="text-muted">Files are lighter than folders</li>
           </ul>
         </>
@@ -328,9 +350,10 @@ function Contents({ tree, period, onAdd }: { tree: Tree; period: Period; onAdd: 
           </thead>
           <tbody className="divide-y divide-line">
             {rows.slice(0, limit).map((entry) => {
-              const look = book.look(entry.categoryId)
+              const counted = entry.kind === 'file' ? entry.countedIn : undefined
+              const look = book.look(counted ? counted.categoryId : entry.categoryId)
               return (
-                <tr key={entry.path} className="group hover:bg-raised/60">
+                <tr key={entry.path} className={`group hover:bg-raised/60 ${counted ? 'outline outline-1 -outline-offset-4 outline-dashed' : ''}`} style={counted ? { outlineColor: look.colour } : undefined}>
                   <td className="max-w-0 py-2 pr-2 pl-4 sm:pl-5">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <span className="relative shrink-0">
@@ -377,11 +400,15 @@ function Contents({ tree, period, onAdd }: { tree: Tree; period: Period; onAdd: 
                         </span>
                       )}
                     </div>
+                    {counted && <div className="mt-1 pl-7"><CountedElsewhere counted={counted} period={period} /></div>}
+                    {entry.kind === 'folder' && (entry.countedElsewhereBytes ?? 0) > 0 && (
+                      <p className="mt-1 pl-7 text-[11px] text-muted">+ {formatBytes(entry.countedElsewhereBytes ?? 0)} counted elsewhere</p>
+                    )}
                   </td>
                   <td className="w-28 px-2 py-2 text-right sm:w-40">
                     <div className="flex items-center justify-end gap-2.5">
                       <span
-                        className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-track sm:block"
+                        className={`hidden h-1.5 w-14 overflow-hidden rounded-full bg-track ${counted ? '' : 'sm:block'}`}
                         aria-hidden="true"
                       >
                         <span
@@ -392,7 +419,7 @@ function Contents({ tree, period, onAdd }: { tree: Tree; period: Period; onAdd: 
                           }}
                         />
                       </span>
-                      <span className="tabular text-ink-2">{formatBytes(entry.size)}</span>
+                      <span className="tabular text-ink-2">{formatBytes(entry.size)}{counted && <span className="block text-[10px] text-muted">not counted here</span>}</span>
                     </div>
                   </td>
                   <td className="tabular hidden w-24 px-2 py-2 text-right text-muted md:table-cell">
@@ -468,13 +495,14 @@ function LargestFiles({ path, period }: { path: string; period: Period }) {
             const rest = path === '' ? f.path : f.path.slice(path.length + 1)
             const folder = parentPath(rest)
             return (
-              <li key={f.path} className="flex items-center gap-3 px-4 py-2 sm:px-5">
+              <li key={f.path} className={`flex items-center gap-3 px-4 py-2 sm:px-5 ${f.countedIn ? 'outline outline-1 -outline-offset-4 outline-dashed' : ''}`} style={f.countedIn ? { outlineColor: book.look(f.countedIn.categoryId).colour } : undefined}>
                 <span className="tabular w-5 shrink-0 text-right text-[12px] text-muted">{i + 1}</span>
-                <Swatch colour={book.look(f.categoryId).colour} size={8} />
+                <Swatch colour={book.look(f.countedIn ? f.countedIn.categoryId : f.categoryId).colour} size={8} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm" title={f.name}>
                     {f.name}
                   </p>
+                  {f.countedIn && <CountedElsewhere counted={f.countedIn} period={period} />}
                   {folder && (
                     <Link
                       to={explorerHref(parentPath(f.path), period)}
@@ -508,6 +536,17 @@ function LargestFiles({ path, period }: { path: string; period: Period }) {
         </div>
       )}
     </Card>
+  )
+}
+
+function CountedElsewhere({ counted, period }: { counted: CountedIn; period: Period }) {
+  const look = useCategories().look(counted.categoryId)
+  return (
+    <Link to={explorerHref(counted.path, period)} title={`Counted in ${counted.path}`} className="inline-flex max-w-full items-center gap-1.5 text-[11px] text-muted hover:text-ink hover:underline">
+      <Swatch colour={look.colour} size={7} />
+      <span className="truncate">Counted in {look.name} · {counted.path}</span>
+      <ChevronRightIcon size={12} className="shrink-0" />
+    </Link>
   )
 }
 

@@ -27,6 +27,11 @@ export interface FitRules {
 /** A node that fits, with its estimated area in px². */
 export type FitNode = Omit<TreemapNode, 'children'> & { px: number; children?: FitNode[] }
 
+/** Visible area includes seeding files only in a torrents drill-down. */
+export function tileBytes(node: TreemapNode): number {
+  return node.size + (node.countedElsewhereBytes ?? 0)
+}
+
 /**
  * The part of nodes (the children of a Folder, which together fill `area`
  * px²) that fits. Each tile's area is its share of what its Folder's tiles
@@ -34,17 +39,19 @@ export type FitNode = Omit<TreemapNode, 'children'> & { px: number; children?: F
  * reckoned as if the tile were square, which squarified tiles nearly are.
  */
 export function fitTreemap(nodes: TreemapNode[], area: number, rules: FitRules, depth = 1): FitNode[] {
-  const sum = nodes.reduce((s, n) => s + n.size, 0)
+  const sum = nodes.reduce((s, n) => s + tileBytes(n), 0)
   if (sum <= 0 || area <= 0) return []
-  const small = nodes.reduce((s, n) => s + (n.kind === 'rest' || (n.size / sum) * area < rules.minTile ? n.size : 0), 0)
+  const small = nodes.reduce((s, n) => s + (n.kind === 'rest' || (tileBytes(n) / sum) * area < rules.minTile ? tileBytes(n) : 0), 0)
   const minTile = small / sum > rules.denseShare ? rules.minDenseTile : rules.minTile
   const out: FitNode[] = []
   let restSize = 0
   let restItems = 0
+  let restElsewhere = 0
   for (const n of nodes) {
-    const px = (n.size / sum) * area
+    const px = (tileBytes(n) / sum) * area
     if (n.kind === 'rest' || px < minTile) {
       restSize += n.size
+      restElsewhere += n.countedElsewhereBytes ?? 0
       restItems += n.kind === 'rest' ? (n.items ?? 0) : 1
       continue
     }
@@ -62,15 +69,16 @@ export function fitTreemap(nodes: TreemapNode[], area: number, rules: FitRules, 
     }
     out.push(node)
   }
-  if (restSize > 0) {
+  if (restSize + restElsewhere > 0) {
     out.push({
       kind: 'rest',
       name: '',
       path: '',
       size: restSize,
+      countedElsewhereBytes: restElsewhere,
       categoryId: null,
       items: restItems,
-      px: (restSize / sum) * area,
+      px: ((restSize + restElsewhere) / sum) * area,
     })
   }
   return out

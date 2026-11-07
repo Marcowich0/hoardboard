@@ -74,4 +74,25 @@ describe('fitTreemap', () => {
     const deep = folder('a', 1, [folder('b', 1, [folder('c', 1, [file('d', 1)])])])
     assert.equal(outline(fitTreemap([deep], 10000, rules)), 'a(10000)[b(10000)[c(10000)]]')
   })
+  test('keeps seeding files visible without adding them to Size', () => {
+    const seeding: TreemapNode = {
+      ...file('seed', 0), countedElsewhereBytes: 400,
+      countedIn: { path: 'data/media', categoryId: 7 },
+    }
+    const got = fitTreemap([file('own', 600), seeding], 1000, rules)
+    assert.equal(outline(got), 'own(600) seed(400)')
+    assert.equal(got[1].size, 0)
+    assert.equal(got[1].countedElsewhereBytes, 400)
+    assert.deepEqual(got[1].countedIn, { path: 'data/media', categoryId: 7 })
+  })
+
+  test('keeps counted and seeding bytes separate when small items fold into rest', () => {
+    const seed = { ...file('seed', 0), countedElsewhereBytes: 20 }
+    const serverRest: TreemapNode = { kind: 'rest', name: '', path: '', size: 10, countedElsewhereBytes: 30, categoryId: null, items: 3 }
+    const got = fitTreemap([file('big', 900), file('small', 40), seed, serverRest], 1000, rules)
+    assert.equal(outline(got), 'big(900) +5(100)')
+    assert.equal(got[1].size, 50)
+    assert.equal(got[1].countedElsewhereBytes, 50)
+  })
+
 })

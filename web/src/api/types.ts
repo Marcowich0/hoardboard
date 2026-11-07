@@ -117,6 +117,8 @@ export interface FolderInfo {
   items: number
   /** Bytes also reachable from outside this folder through hardlinks. */
   sharedBytes: number
+  /** Visible seeding bytes counted only toward a non-torrents Folder. */
+  countedElsewhereBytes?: number
   /** Where its bytes are, largest first. */
   disks: { disk: string; bytes: number }[]
   /** The category its bytes fall into, and the Assignment that decides it. */
@@ -133,6 +135,8 @@ export interface FolderEntry {
   change: number | null
   items: number
   sharedBytes: number
+  /** Visible seeding bytes counted only toward a non-torrents Folder. */
+  countedElsewhereBytes?: number
   disks: { disk: string; bytes: number }[]
   /** Its effective category (most specific Assignment); null is Uncategorized. */
   categoryId: number | null
@@ -146,6 +150,13 @@ export interface FileEntry {
   disk: string
   /** How many names the file has; above 1 it is hardlinked. */
   links: number
+  /** Present only for a torrents name counted toward another Folder. */
+  countedIn?: CountedIn
+  categoryId: number | null
+}
+
+export interface CountedIn {
+  path: string
   categoryId: number | null
 }
 
@@ -158,6 +169,7 @@ export interface FileEntry {
  * shows what fits its size (lib/treemap.ts).
  */
 export interface Treemap {
+  countedElsewhereBytes?: number
   path: string
   size: number
   /** Largest first. */
@@ -165,6 +177,9 @@ export interface Treemap {
 }
 
 export interface TreemapNode {
+  /** Extra area for seeding names when drilling into torrents; excluded from Size. */
+  countedElsewhereBytes?: number
+  countedIn?: CountedIn
   kind: 'folder' | 'file' | 'rest'
   /** "" for the rest. */
   name: string

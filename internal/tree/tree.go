@@ -32,6 +32,9 @@ type File struct {
 	// (st_blocks*512), not its apparent size, so a sparse file counts what
 	// it really takes.
 	Bytes int64
+	// CountedIn is the non-torrents Folder that counts this name's bytes,
+	// when this is a torrents hardlink. Computed by Finish, not stored.
+	CountedIn string
 }
 
 // Folder is one Folder of the merged tree, or the root ("").
@@ -45,7 +48,7 @@ type Folder struct {
 	// Computed by Finish.
 
 	// Size is the bytes of every file below it, each physical file once
-	// however many of its names are below it, as du counts. Folders' own
+	// however many of its counted names are below it. Folders' own
 	// blocks are not in it: they are filesystem overhead, Unaccounted.
 	Size int64
 	// SingleBytes is the part of Size in files with one name (st_nlink 1).
@@ -60,6 +63,9 @@ type Folder struct {
 	// SharedBytes is the part of Size in files that also have a name
 	// outside this Folder.
 	SharedBytes int64
+	// CountedElsewhereBytes are files visible below this Folder whose bytes
+	// count only toward a non-torrents Folder outside it, each file once.
+	CountedElsewhereBytes int64
 
 	index map[string]*Folder // while building only
 }
@@ -87,6 +93,9 @@ type Hardlink struct {
 	// Folders holds the Folder of each name the Scan saw, in tree order; a
 	// Folder holding two of its names is in it twice.
 	Folders []*Folder
+	// CountedFolders excludes torrents names when a non-torrents name exists.
+	CountedFolders []*Folder
+	files          []*File
 }
 
 type identity struct {
@@ -192,6 +201,7 @@ func finish(f *Folder, disks int, links *[]Hardlink, index map[identity]int) {
 			l := &(*links)[n]
 			l.Links = max(l.Links, int(file.Links))
 			l.Folders = append(l.Folders, f)
+			l.files = append(l.files, file)
 			continue
 		}
 		f.Size += file.Bytes
@@ -210,13 +220,33 @@ func finish(f *Folder, disks int, links *[]Hardlink, index map[identity]int) {
 }
 
 // addHardlinks adds each Hardlink once to the Size and DiskBytes of every
-// Folder holding at least one of its names, and to the SharedBytes of those
+// Folder holding at least one counted name, and to the SharedBytes of those
 // holding only some of them.
 func addHardlinks(links []Hardlink) {
 	seen := map[*Folder]int{}
+	counted := map[*Folder]bool{}
 	for i := range links {
 		l := &links[i]
 		l.Links = max(l.Links, len(l.Folders))
+		paths := make([]string, len(l.Folders))
+		for j, f := range l.Folders {
+			paths[j] = f.Path()
+		}
+		owners := CountingPaths(paths)
+		for j, f := range l.Folders {
+			if slices.Contains(owners, paths[j]) {
+				l.CountedFolders = append(l.CountedFolders, f)
+			} else {
+				l.files[j].CountedIn = owners[0]
+			}
+		}
+		l.files = nil
+		clear(counted)
+		for _, f := range l.CountedFolders {
+			for g := f; g != nil && !counted[g]; g = g.Parent {
+				counted[g] = true
+			}
+		}
 		clear(seen)
 		for _, f := range l.Folders {
 			for g := f; g != nil; g = g.Parent {
@@ -224,6 +254,10 @@ func addHardlinks(links []Hardlink) {
 			}
 		}
 		for g, names := range seen {
+			if !counted[g] {
+				g.CountedElsewhereBytes += l.Bytes
+				continue
+			}
 			g.Size += l.Bytes
 			g.DiskBytes[l.Disk] += l.Bytes
 			if names < l.Links {

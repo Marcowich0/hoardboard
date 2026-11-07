@@ -21,13 +21,14 @@ type tree struct {
 }
 
 type folderInfo struct {
-	Path        string      `json:"path"`
-	Name        string      `json:"name"`
-	Size        int64       `json:"size"`
-	Change      *int64      `json:"change"`
-	Items       int64       `json:"items"`
-	SharedBytes int64       `json:"sharedBytes"`
-	Disks       []diskBytes `json:"disks"`
+	Path                  string      `json:"path"`
+	Name                  string      `json:"name"`
+	Size                  int64       `json:"size"`
+	Change                *int64      `json:"change"`
+	Items                 int64       `json:"items"`
+	SharedBytes           int64       `json:"sharedBytes"`
+	CountedElsewhereBytes int64       `json:"countedElsewhereBytes"`
+	Disks                 []diskBytes `json:"disks"`
 }
 
 type diskBytes struct {
@@ -37,15 +38,20 @@ type diskBytes struct {
 
 // entry is a FolderEntry or a FileEntry.
 type entry struct {
-	Kind        string      `json:"kind"`
-	Name        string      `json:"name"`
-	Path        string      `json:"path"`
-	Size        int64       `json:"size"`
-	Items       int64       `json:"items"`
-	SharedBytes int64       `json:"sharedBytes"`
-	Disks       []diskBytes `json:"disks"`
-	Disk        string      `json:"disk"`
-	Links       int         `json:"links"`
+	Kind                  string      `json:"kind"`
+	Name                  string      `json:"name"`
+	Path                  string      `json:"path"`
+	Size                  int64       `json:"size"`
+	Items                 int64       `json:"items"`
+	SharedBytes           int64       `json:"sharedBytes"`
+	CountedElsewhereBytes int64       `json:"countedElsewhereBytes"`
+	Disks                 []diskBytes `json:"disks"`
+	Disk                  string      `json:"disk"`
+	Links                 int         `json:"links"`
+	CountedIn             *struct {
+		Path       string `json:"path"`
+		CategoryID *int64 `json:"categoryId"`
+	} `json:"countedIn"`
 }
 
 func TestAFolderSpreadOverDisksIsOneFolder(t *testing.T) {

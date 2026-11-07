@@ -231,7 +231,7 @@ func TestTheMostSpecificAssignmentWins(t *testing.T) {
 	app.Mount.File("disk2", "data/media/movies/kids/b.mkv", 2*unit)
 	app.Mount.File("disk1", "data/media/tv/c.mkv", 3*unit)
 	app.Mount.File("disk1", "data/media/d.nfo", 1*unit)
-	app.Mount.File("disk1", "data/torrents/e.iso", 7*unit)
+	app.Mount.File("disk1", "data/seeding/e.iso", 7*unit)
 	app.Scan(t)
 
 	media := create(t, app, "Media", "#3e63dd")
@@ -248,7 +248,7 @@ func TestTheMostSpecificAssignmentWins(t *testing.T) {
 		}
 	}
 	if got.Uncategorized.Size != 7*unit {
-		t.Errorf("uncategorized = %d, want %d (data/torrents)", got.Uncategorized.Size, 7*unit)
+		t.Errorf("uncategorized = %d, want %d (data/seeding)", got.Uncategorized.Size, 7*unit)
 	}
 	// An Assignment's own size is its whole Folder, subfolders included.
 	if a := named(t, got, "Media").Assignments; len(a) != 1 || a[0].Size == nil || *a[0].Size != 10*unit {
@@ -378,12 +378,12 @@ func TestACategoryCountsAFileHardlinkedAcrossItsFoldersOnce(t *testing.T) {
 func TestCategoriesShowTheBytesTheyShareWithOthers(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t)
-	// One film seeding in torrents and linked into movies; one seeding only;
+	// One film seeding in seeding and linked into movies; one seeding only;
 	// one in movies only. A show linked into tv and also left in
 	// downloads, which no Assignment covers.
-	app.Mount.File("disk1", "data/torrents/film.mkv", 4*unit)
-	app.Mount.Link("disk1", "data/torrents/film.mkv", "data/media/movies/Film (2020)/film.mkv")
-	app.Mount.File("disk1", "data/torrents/seed.iso", 2*unit)
+	app.Mount.File("disk1", "data/seeding/film.mkv", 4*unit)
+	app.Mount.Link("disk1", "data/seeding/film.mkv", "data/media/movies/Film (2020)/film.mkv")
+	app.Mount.File("disk1", "data/seeding/seed.iso", 2*unit)
 	app.Mount.File("disk2", "data/media/movies/own.mkv", 1*unit)
 	app.Mount.File("disk2", "data/downloads/show.mkv", 3*unit)
 	app.Mount.Link("disk2", "data/downloads/show.mkv", "data/media/tv/show.mkv")
@@ -391,10 +391,10 @@ func TestCategoriesShowTheBytesTheyShareWithOthers(t *testing.T) {
 	app.Scan(t)
 
 	movies := create(t, app, "Movies", "#e5484d")
-	torrents := create(t, app, "Torrents", "#8e4ec6")
+	seeding := create(t, app, "Seeding", "#8e4ec6")
 	tv := create(t, app, "TV", "#3e63dd")
 	assign(t, app, "data/media/movies", movies.ID)
-	assign(t, app, "data/torrents", torrents.ID)
+	assign(t, app, "data/seeding", seeding.ID)
 	assign(t, app, "data/media/tv", tv.ID)
 
 	got := list(t, app)
@@ -403,8 +403,8 @@ func TestCategoriesShowTheBytesTheyShareWithOthers(t *testing.T) {
 		size   int64
 		shared []sharedWith
 	}{
-		{"Movies", 5 * unit, []sharedWith{{&torrents.ID, 4 * unit}}},
-		{"Torrents", 6 * unit, []sharedWith{{&movies.ID, 4 * unit}}},
+		{"Movies", 5 * unit, []sharedWith{{&seeding.ID, 4 * unit}}},
+		{"Seeding", 6 * unit, []sharedWith{{&movies.ID, 4 * unit}}},
 		{"TV", 3 * unit, []sharedWith{{nil, 3 * unit}}}, // also in Uncategorized
 	}
 	for _, c := range cases {

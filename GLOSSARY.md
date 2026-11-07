@@ -17,11 +17,11 @@ A directory inside a share, identified by its path relative to the merged tree, 
 _Avoid_: Directory, path, node
 
 **Size**:
-The bytes a folder's files occupy, counting each physical file once even if it appears under several names inside the folder.
+The bytes a folder's files occupy, counting each physical file once even if it appears under several names inside the folder. When a file has names both under a folder named exactly `torrents` and outside it, only the names outside torrents count toward Size. The seeding names stay visible.
 _Avoid_: Usage, apparent size
 
 **Shared bytes**:
-Bytes that count toward two places at once because the same physical file is hardlinked into both (typically `torrents/` and `media/`).
+Bytes that count toward two places at once because the same physical file is hardlinked into both (for example two media folders). A torrents seeding name does not add bytes to its folder’s Size; the non-torrents folder still reports them as Shared bytes because the physical link exists outside it.
 _Avoid_: Duplicates, double counting
 
 **Used space** / **Free space**:

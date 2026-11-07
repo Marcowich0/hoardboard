@@ -26,13 +26,14 @@ type treeJSON struct {
 
 // folderJSON is FolderInfo.
 type folderJSON struct {
-	Path        string          `json:"path"`
-	Name        string          `json:"name"`
-	Size        int64           `json:"size"`
-	Change      *int64          `json:"change"`
-	Items       int64           `json:"items"`
-	SharedBytes int64           `json:"sharedBytes"`
-	Disks       []diskBytesJSON `json:"disks"`
+	Path                  string          `json:"path"`
+	Name                  string          `json:"name"`
+	Size                  int64           `json:"size"`
+	Change                *int64          `json:"change"`
+	Items                 int64           `json:"items"`
+	SharedBytes           int64           `json:"sharedBytes"`
+	CountedElsewhereBytes int64           `json:"countedElsewhereBytes"`
+	Disks                 []diskBytesJSON `json:"disks"`
 	// Category is null when the Folder is Uncategorized.
 	Category *folderCategoryJSON `json:"category"`
 }
@@ -50,28 +51,43 @@ type diskBytesJSON struct {
 }
 
 type folderEntryJSON struct {
-	Kind        string          `json:"kind"` // "folder"
-	Name        string          `json:"name"`
-	Path        string          `json:"path"`
-	Size        int64           `json:"size"`
-	Change      *int64          `json:"change"`
-	Items       int64           `json:"items"`
-	SharedBytes int64           `json:"sharedBytes"`
-	Disks       []diskBytesJSON `json:"disks"`
+	Kind                  string          `json:"kind"` // "folder"
+	Name                  string          `json:"name"`
+	Path                  string          `json:"path"`
+	Size                  int64           `json:"size"`
+	Change                *int64          `json:"change"`
+	Items                 int64           `json:"items"`
+	SharedBytes           int64           `json:"sharedBytes"`
+	CountedElsewhereBytes int64           `json:"countedElsewhereBytes"`
+	Disks                 []diskBytesJSON `json:"disks"`
 	// CategoryID is its effective category, null for Uncategorized.
 	CategoryID *category.ID `json:"categoryId"`
 }
 
 type fileEntryJSON struct {
-	Kind  string `json:"kind"` // "file"
-	Name  string `json:"name"`
-	Path  string `json:"path"`
-	Size  int64  `json:"size"`
-	Disk  string `json:"disk"`
-	Links uint32 `json:"links"`
+	Kind      string         `json:"kind"` // "file"
+	Name      string         `json:"name"`
+	Path      string         `json:"path"`
+	Size      int64          `json:"size"`
+	Disk      string         `json:"disk"`
+	Links     uint32         `json:"links"`
+	CountedIn *countedInJSON `json:"countedIn,omitempty"`
 	// CategoryID is the effective category of the Folder holding this
 	// name, null for Uncategorized.
 	CategoryID *category.ID `json:"categoryId"`
+}
+
+// countedInJSON links a seeding name to the Folder whose Size includes it.
+type countedInJSON struct {
+	Path       string       `json:"path"`
+	CategoryID *category.ID `json:"categoryId"`
+}
+
+func countedIn(file *tree.File, assigned category.Assignments) *countedInJSON {
+	if file.CountedIn == "" {
+		return nil
+	}
+	return &countedInJSON{Path: file.CountedIn, CategoryID: categoryOf(assigned, file.CountedIn)}
 }
 
 // periodDays is how many days back each period of GET /api/tree's change
@@ -188,14 +204,15 @@ func (v treeView) folderInfo(f *tree.Folder) folderJSON {
 		c = &folderCategoryJSON{CategoryID: id, AssignedPath: at}
 	}
 	return folderJSON{
-		Path:        path,
-		Name:        f.Name,
-		Size:        f.Size,
-		Change:      v.change(path, f.Size),
-		Items:       f.Items,
-		SharedBytes: f.SharedBytes,
-		Disks:       disksJSON(v.t, f),
-		Category:    c,
+		Path:                  path,
+		Name:                  f.Name,
+		Size:                  f.Size,
+		Change:                v.change(path, f.Size),
+		Items:                 f.Items,
+		SharedBytes:           f.SharedBytes,
+		CountedElsewhereBytes: f.CountedElsewhereBytes,
+		Disks:                 disksJSON(v.t, f),
+		Category:              c,
 	}
 }
 
@@ -211,15 +228,16 @@ func (v treeView) children(f *tree.Folder) []any {
 	for _, c := range folders {
 		p := tree.Join(path, c.Name)
 		out = append(out, folderEntryJSON{
-			Kind:        "folder",
-			Name:        c.Name,
-			Path:        p,
-			Size:        c.Size,
-			Change:      v.change(p, c.Size),
-			Items:       c.Items,
-			SharedBytes: c.SharedBytes,
-			Disks:       disksJSON(v.t, c),
-			CategoryID:  categoryOf(v.assigned, p),
+			Kind:                  "folder",
+			Name:                  c.Name,
+			Path:                  p,
+			Size:                  c.Size,
+			Change:                v.change(p, c.Size),
+			Items:                 c.Items,
+			SharedBytes:           c.SharedBytes,
+			CountedElsewhereBytes: c.CountedElsewhereBytes,
+			Disks:                 disksJSON(v.t, c),
+			CategoryID:            categoryOf(v.assigned, p),
 		})
 	}
 	for i := range files {
@@ -231,12 +249,13 @@ func (v treeView) children(f *tree.Folder) []any {
 // file is the entry of one name of a file, in the Folder at dir.
 func (v treeView) file(file *tree.File, dir string) fileEntryJSON {
 	return fileEntryJSON{
-		Kind:  "file",
-		Name:  file.Name,
-		Path:  tree.Join(dir, file.Name),
-		Size:  file.Bytes,
-		Disk:  v.t.Disks[file.Disk],
-		Links: file.Links,
+		Kind:      "file",
+		Name:      file.Name,
+		Path:      tree.Join(dir, file.Name),
+		Size:      file.Bytes,
+		Disk:      v.t.Disks[file.Disk],
+		Links:     file.Links,
+		CountedIn: countedIn(file, v.assigned),
 		// A file is in its Folder's category.
 		CategoryID: categoryOf(v.assigned, dir),
 	}

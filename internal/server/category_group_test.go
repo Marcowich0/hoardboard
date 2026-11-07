@@ -104,10 +104,10 @@ func TestGroupsAreOneLevelDeep(t *testing.T) {
 func TestAGroupsSizeAndHistoryCoverTheCategoriesInIt(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t) // 2026-03-02
-	// film.mkv is in movies and seeds in torrents; ep.mkv is in tv and
+	// film.mkv is in movies and seeds in seeding; ep.mkv is in tv and
 	// linked into movies too (both in Media: once); extras is Media's own.
 	app.Mount.File("disk1", "data/media/movies/film.mkv", 4*unit)
-	app.Mount.Link("disk1", "data/media/movies/film.mkv", "data/torrents/film.mkv")
+	app.Mount.Link("disk1", "data/media/movies/film.mkv", "data/seeding/film.mkv")
 	app.Mount.File("disk2", "data/media/tv/ep.mkv", 2*unit)
 	app.Mount.Link("disk2", "data/media/tv/ep.mkv", "data/media/movies/ep.mkv")
 	app.Mount.File("disk2", "data/media/extras/x.bin", 1*unit)
@@ -119,18 +119,18 @@ func TestAGroupsSizeAndHistoryCoverTheCategoriesInIt(t *testing.T) {
 	media := create(t, app, "Media", "#2a78d6")
 	movies := create(t, app, "Movies", "#1baf7a")
 	tv := create(t, app, "TV", "#eda100")
-	torrents := create(t, app, "Torrents", "#6250d6")
+	seeding := create(t, app, "Seeding", "#6250d6")
 	assign(t, app, "data/media", media.ID)
 	assign(t, app, "data/media/movies", movies.ID)
 	assign(t, app, "data/media/tv", tv.ID)
-	assign(t, app, "data/torrents", torrents.ID)
+	assign(t, app, "data/seeding", seeding.ID)
 	moveInto(t, app, movies.ID, &media.ID, http.StatusOK)
 	moveInto(t, app, tv.ID, &media.ID, http.StatusOK)
 
 	got := list(t, app)
 	if g := named(t, got, "Media"); g.Size != 10*unit {
 		t.Errorf("Media size = %d, want %d (its own, Movies' and TV's, each file once)", g.Size, 10*unit)
-	} else if want := []sharedWith{{&torrents.ID, 4 * unit}}; !equalShared(g.SharedWith, want) {
+	} else if want := []sharedWith{{&seeding.ID, 4 * unit}}; !equalShared(g.SharedWith, want) {
 		t.Errorf("Media shares %s, want %s (nothing with its own categories)", showShared(g.SharedWith), showShared(want))
 	}
 	if m := named(t, got, "Movies"); m.Size != 6*unit {

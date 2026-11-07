@@ -11,10 +11,15 @@ import (
 
 // treemapNode is TreemapNode in web/src/api/types.ts.
 type treemapNode struct {
-	Kind       string        `json:"kind"`
-	Name       string        `json:"name"`
-	Path       string        `json:"path"`
-	Size       int64         `json:"size"`
+	Kind                  string `json:"kind"`
+	Name                  string `json:"name"`
+	Path                  string `json:"path"`
+	Size                  int64  `json:"size"`
+	CountedElsewhereBytes int64  `json:"countedElsewhereBytes"`
+	CountedIn             *struct {
+		Path       string `json:"path"`
+		CategoryID *int64 `json:"categoryId"`
+	} `json:"countedIn"`
 	CategoryID *int64        `json:"categoryId"`
 	Items      int           `json:"items"`
 	Children   []treemapNode `json:"children"`

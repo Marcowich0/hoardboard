@@ -47,12 +47,12 @@ func getDonut(t *testing.T, app *apitest.App) overviewDonut {
 func TestADonutBytesHardlinkedIntoTwoCategoriesGoToTheHigherRank(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t)
-	// film.mkv seeds in torrents and is linked into movies; each also has a
+	// film.mkv seeds in seeding and is linked into movies; each also has a
 	// file of its own. show.mkv is in tv and also left in downloads, which
 	// no Assignment covers; other.bin is only there.
-	app.Mount.File("disk1", "data/torrents/film.mkv", 4*unit)
-	app.Mount.Link("disk1", "data/torrents/film.mkv", "data/media/movies/film.mkv")
-	app.Mount.File("disk1", "data/torrents/seed.iso", 2*unit)
+	app.Mount.File("disk1", "data/seeding/film.mkv", 4*unit)
+	app.Mount.Link("disk1", "data/seeding/film.mkv", "data/media/movies/film.mkv")
+	app.Mount.File("disk1", "data/seeding/seed.iso", 2*unit)
 	app.Mount.File("disk2", "data/media/movies/own.mkv", 1*unit)
 	app.Mount.File("disk2", "data/downloads/show.mkv", 3*unit)
 	app.Mount.Link("disk2", "data/downloads/show.mkv", "data/media/tv/show.mkv")
@@ -60,24 +60,24 @@ func TestADonutBytesHardlinkedIntoTwoCategoriesGoToTheHigherRank(t *testing.T) {
 	app.Scan(t)
 
 	movies := create(t, app, "Movies", "#e5484d")
-	torrents := create(t, app, "Torrents", "#8e4ec6")
+	seeding := create(t, app, "Seeding", "#8e4ec6")
 	tv := create(t, app, "TV", "#3e63dd")
 	assign(t, app, "data/media/movies", movies.ID)
-	assign(t, app, "data/torrents", torrents.ID)
+	assign(t, app, "data/seeding", seeding.ID)
 	assign(t, app, "data/media/tv", tv.ID)
 
 	got := getDonut(t, app).Donut
-	want := []slice{{movies.ID, 5 * unit}, {torrents.ID, 2 * unit}, {tv.ID, 3 * unit}}
+	want := []slice{{movies.ID, 5 * unit}, {seeding.ID, 2 * unit}, {tv.ID, 3 * unit}}
 	if !slices.Equal(got.Categories, want) || got.Uncategorized != 1*unit {
-		t.Fatalf("Movies over Torrents: donut = %+v, uncategorized %d; want %+v, uncategorized %d",
+		t.Fatalf("Movies over Seeding: donut = %+v, uncategorized %d; want %+v, uncategorized %d",
 			got.Categories, got.Uncategorized, want, 1*unit)
 	}
 
-	reorder(t, app, torrents.ID, movies.ID, tv.ID)
+	reorder(t, app, seeding.ID, movies.ID, tv.ID)
 	got = getDonut(t, app).Donut
-	want = []slice{{torrents.ID, 6 * unit}, {movies.ID, 1 * unit}, {tv.ID, 3 * unit}}
+	want = []slice{{seeding.ID, 6 * unit}, {movies.ID, 1 * unit}, {tv.ID, 3 * unit}}
 	if !slices.Equal(got.Categories, want) || got.Uncategorized != 1*unit {
-		t.Fatalf("Torrents over Movies: donut = %+v, uncategorized %d; want %+v, uncategorized %d",
+		t.Fatalf("Seeding over Movies: donut = %+v, uncategorized %d; want %+v, uncategorized %d",
 			got.Categories, got.Uncategorized, want, 1*unit)
 	}
 }
@@ -94,14 +94,14 @@ func TestTheDonutAddsUpToUsedSpace(t *testing.T) {
 	}
 
 	app.Mount.File("disk1", "data/media/movies/a.mkv", 4*unit)
-	app.Mount.Link("disk1", "data/media/movies/a.mkv", "data/torrents/a.mkv")
+	app.Mount.Link("disk1", "data/media/movies/a.mkv", "data/seeding/a.mkv")
 	app.Mount.File("disk2", "data/media/movies/b.mkv", 2*unit)
 	app.Mount.File("cache", "appdata/plex/db", 1*unit)
 	app.Scan(t)
 	movies := create(t, app, "Movies", "#e5484d")
-	torrents := create(t, app, "Torrents", "#8e4ec6")
+	seeding := create(t, app, "Seeding", "#8e4ec6")
 	assign(t, app, "data/media/movies", movies.ID)
-	assign(t, app, "data/torrents", torrents.ID)
+	assign(t, app, "data/seeding", seeding.ID)
 
 	got := getDonut(t, app)
 	if got.Donut.sum() != got.Totals.Used {

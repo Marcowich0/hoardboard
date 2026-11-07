@@ -64,9 +64,9 @@ func TestAFileHardlinkedTwiceInOneFolderCountsOnce(t *testing.T) {
 func TestAFileHardlinkedAcrossTwoFoldersCountsOnceAboveThem(t *testing.T) {
 	t.Parallel()
 	app := apitest.Start(t)
-	app.Mount.File("disk1", "data/torrents/movie.mkv", 4*unit)
-	app.Mount.Link("disk1", "data/torrents/movie.mkv", "data/media/movies/Movie (2020)/movie.mkv")
-	app.Mount.File("disk1", "data/torrents/only-seeding.mkv", 2*unit)
+	app.Mount.File("disk1", "data/seeding/movie.mkv", 4*unit)
+	app.Mount.Link("disk1", "data/seeding/movie.mkv", "data/media/movies/Movie (2020)/movie.mkv")
+	app.Mount.File("disk1", "data/seeding/only-seeding.mkv", 2*unit)
 	app.Mount.File("disk1", "data/media/movies/only-here.mkv", 1*unit)
 
 	app.Scan(t)
@@ -77,9 +77,9 @@ func TestAFileHardlinkedAcrossTwoFoldersCountsOnceAboveThem(t *testing.T) {
 		t.Errorf("data = size %d, shared %d; want size %d (movie.mkv once), shared 0 (both names inside)",
 			data.Folder.Size, data.Folder.SharedBytes, 7*unit)
 	}
-	if torrents := child(t, data, "torrents"); torrents.Size != 6*unit || torrents.SharedBytes != 4*unit {
-		t.Errorf("torrents = size %d, shared %d; want size %d, shared %d",
-			torrents.Size, torrents.SharedBytes, 6*unit, 4*unit)
+	if seeding := child(t, data, "seeding"); seeding.Size != 6*unit || seeding.SharedBytes != 4*unit {
+		t.Errorf("seeding = size %d, shared %d; want size %d, shared %d",
+			seeding.Size, seeding.SharedBytes, 6*unit, 4*unit)
 	}
 	if media := child(t, data, "media"); media.Size != 5*unit || media.SharedBytes != 4*unit {
 		t.Errorf("media = size %d, shared %d; want size %d, shared %d",

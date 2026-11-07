@@ -29,8 +29,9 @@ const (
 // treemapJSON is the answer of GET /api/treemap (Treemap in
 // web/src/api/types.ts).
 type treemapJSON struct {
-	Path string `json:"path"`
-	Size int64  `json:"size"`
+	Path                  string `json:"path"`
+	Size                  int64  `json:"size"`
+	CountedElsewhereBytes int64  `json:"countedElsewhereBytes,omitempty"`
 	// Children are the Folder's, nested, largest first.
 	Children []*treemapNodeJSON `json:"children"`
 }
@@ -40,9 +41,11 @@ type treemapJSON struct {
 type treemapNodeJSON struct {
 	Kind string `json:"kind"` // "folder", "file" or "rest"
 	// Name and Path are "" for the rest.
-	Name string `json:"name"`
-	Path string `json:"path"`
-	Size int64  `json:"size"`
+	Name                  string         `json:"name"`
+	Path                  string         `json:"path"`
+	Size                  int64          `json:"size"`
+	CountedElsewhereBytes int64          `json:"countedElsewhereBytes,omitempty"`
+	CountedIn             *countedInJSON `json:"countedIn,omitempty"`
 	// CategoryID is its effective category, null for Uncategorized (and
 	// for the rest).
 	CategoryID *category.ID `json:"categoryId"`
@@ -77,9 +80,10 @@ func (s *Server) handleTreemap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, treemapJSON{
-		Path:     path,
-		Size:     f.Size,
-		Children: buildTreemap(f, path, assigned),
+		Path:                  path,
+		Size:                  f.Size,
+		Children:              buildTreemap(f, path, assigned),
+		CountedElsewhereBytes: f.CountedElsewhereBytes,
 	})
 }
 
@@ -97,8 +101,8 @@ type openings []opening
 
 func (o openings) Len() int { return len(o) }
 func (o openings) Less(i, j int) bool {
-	if o[i].folder.Size != o[j].folder.Size {
-		return o[i].folder.Size > o[j].folder.Size
+	if a, b := o[i].node.Size+o[i].node.CountedElsewhereBytes, o[j].node.Size+o[j].node.CountedElsewhereBytes; a != b {
+		return a > b
 	}
 	return o[i].node.Path < o[j].node.Path
 }
@@ -114,13 +118,20 @@ func (o *openings) Pop() any {
 // buildTreemap lists root's children (root is at path) and opens Folders,
 // largest first, while the node budget lasts.
 func buildTreemap(root *tree.Folder, path string, assigned category.Assignments) []*treemapNodeJSON {
-	least := max(1, root.Size/treemapFraction)
+	showElsewhere := tree.InTorrents(path)
+	weight := func(f *tree.Folder) int64 {
+		if showElsewhere {
+			return f.Size + f.CountedElsewhereBytes
+		}
+		return f.Size
+	}
+	least := max(1, weight(root)/treemapFraction)
 	budget := treemapNodes
 	top := &treemapNodeJSON{Path: path}
 	queue := &openings{{folder: root, node: top, depth: 0}}
 	for queue.Len() > 0 && budget > 0 {
 		o := heap.Pop(queue).(opening)
-		kids, folders := treemapChildren(o.folder, o.node.Path, least, assigned)
+		kids, folders := treemapChildren(o.folder, o.node.Path, least, assigned, showElsewhere)
 		if o.depth > 0 && len(kids) > budget {
 			continue // too many to show: it stays one tile
 		}
@@ -131,7 +142,7 @@ func buildTreemap(root *tree.Folder, path string, assigned category.Assignments)
 		}
 		for _, node := range kids {
 			// A Folder too small for its items to be seen stays one tile.
-			if sub, ok := folders[node]; ok && sub.Size >= least*4 && len(sub.Folders)+len(sub.Files) > 0 {
+			if sub, ok := folders[node]; ok && weight(sub) >= least*4 && len(sub.Folders)+len(sub.Files) > 0 {
 				heap.Push(queue, opening{folder: sub, node: node, depth: o.depth + 1})
 			}
 		}
@@ -145,40 +156,68 @@ func buildTreemap(root *tree.Folder, path string, assigned category.Assignments)
 // treemapChildren is f's subfolders and files of at least least bytes,
 // largest first, and a rest node for the others; folders maps each
 // subfolder's node to it.
-func treemapChildren(f *tree.Folder, dir string, least int64, assigned category.Assignments) (out []*treemapNodeJSON, folders map[*treemapNodeJSON]*tree.Folder) {
+func treemapChildren(f *tree.Folder, dir string, least int64, assigned category.Assignments, showElsewhere bool) (out []*treemapNodeJSON, folders map[*treemapNodeJSON]*tree.Folder) {
 	out = []*treemapNodeJSON{}
 	folders = map[*treemapNodeJSON]*tree.Folder{}
-	var shown int64
+	var shown, shownElsewhere int64
 	rest := 0
 	for _, c := range f.Folders {
-		if c.Size < least {
-			if c.Size > 0 {
+		bytes := c.Size
+		if showElsewhere {
+			bytes += c.CountedElsewhereBytes
+		}
+		if bytes < least {
+			if bytes > 0 {
 				rest++
 			}
 			continue
 		}
 		p := tree.Join(dir, c.Name)
 		n := &treemapNodeJSON{Kind: "folder", Name: c.Name, Path: p, Size: c.Size, CategoryID: categoryOf(assigned, p)}
+		if showElsewhere {
+			n.CountedElsewhereBytes = c.CountedElsewhereBytes
+			shownElsewhere += c.CountedElsewhereBytes
+		}
 		out = append(out, n)
 		folders[n] = c
-		shown += c.Size
+		shown += bytes
 	}
 	fileCategory := categoryOf(assigned, dir)
 	for _, file := range f.Files {
+		if file.CountedIn != "" && !showElsewhere {
+			continue
+		}
 		if file.Bytes < least {
 			if file.Bytes > 0 {
 				rest++
 			}
 			continue
 		}
-		out = append(out, &treemapNodeJSON{Kind: "file", Name: file.Name, Path: tree.Join(dir, file.Name), Size: file.Bytes, CategoryID: fileCategory})
+		n := &treemapNodeJSON{Kind: "file", Name: file.Name, Path: tree.Join(dir, file.Name), Size: file.Bytes, CategoryID: fileCategory}
+		if file.CountedIn != "" {
+			n.Size = 0
+			n.CountedElsewhereBytes = file.Bytes
+			shownElsewhere += file.Bytes
+			n.CountedIn = countedIn(&file, assigned)
+		}
+		out = append(out, n)
 		shown += file.Bytes
 	}
-	slices.SortStableFunc(out, func(a, b *treemapNodeJSON) int { return cmp.Compare(b.Size, a.Size) })
+	slices.SortStableFunc(out, func(a, b *treemapNodeJSON) int {
+		return cmp.Compare(b.Size+b.CountedElsewhereBytes, a.Size+a.CountedElsewhereBytes)
+	})
 	// A hardlinked file counts once in f's Size but once per name in its
 	// children's, so what they show can pass it.
-	if left := f.Size - shown; rest > 0 && left > 0 {
-		out = append(out, &treemapNodeJSON{Kind: "rest", Size: left, Items: rest})
+	total := f.Size
+	if showElsewhere {
+		total += f.CountedElsewhereBytes
+	}
+	if left := total - shown; rest > 0 && left > 0 {
+		elsewhere := int64(0)
+		if showElsewhere {
+			elsewhere = min(left, max(0, f.CountedElsewhereBytes-shownElsewhere))
+		}
+		out = append(out, &treemapNodeJSON{Kind: "rest", Size: left - elsewhere, CountedElsewhereBytes: elsewhere, Items: rest})
 	}
 	return out, folders
 }

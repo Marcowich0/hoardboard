@@ -17,7 +17,7 @@ type Named struct {
 
 // Largest lists the n largest physical files below f, largest first, then
 // by path. A hardlinked file is listed once, by its first path in name
-// order.
+// order, preferring a counted name over a torrents seeding name.
 func (f *Folder) Largest(n int) []Named {
 	walk := func(visit func(dir string, file *File)) {
 		var rec func(f *Folder, dir string)
@@ -35,11 +35,14 @@ func (f *Folder) Largest(n int) []Named {
 
 	// The name each file with several names is listed by.
 	firstName := map[identity]string{}
+	seeding := map[identity]bool{}
 	walk(func(dir string, file *File) {
 		if file.Links > 1 {
 			p := Join(dir, file.Name)
-			if q, ok := firstName[idOf(file)]; !ok || p < q {
-				firstName[idOf(file)] = p
+			id, seed := idOf(file), file.CountedIn != ""
+			if q, ok := firstName[id]; !ok || (seeding[id] && !seed) || (seeding[id] == seed && p < q) {
+				seeding[id] = seed
+				firstName[id] = p
 			}
 		}
 	})

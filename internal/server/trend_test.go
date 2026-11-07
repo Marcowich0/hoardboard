@@ -49,23 +49,23 @@ func TestTheTrendSplitsEachDayByRankAndAReorderSplitsThePastAgain(t *testing.T) 
 		t.Fatalf("before a Scan: trend days = %v, want none", got.Days)
 	}
 
-	// film.mkv seeds in torrents and is linked into movies.
-	app.Mount.File("disk1", "data/torrents/film.mkv", 4*unit)
-	app.Mount.Link("disk1", "data/torrents/film.mkv", "data/media/movies/film.mkv")
-	app.Mount.File("disk1", "data/torrents/seed.iso", 2*unit)
+	// film.mkv seeds in seeding and is linked into movies.
+	app.Mount.File("disk1", "data/seeding/film.mkv", 4*unit)
+	app.Mount.Link("disk1", "data/seeding/film.mkv", "data/media/movies/film.mkv")
+	app.Mount.File("disk1", "data/seeding/seed.iso", 2*unit)
 	app.Mount.File("disk2", "data/media/movies/own.mkv", 1*unit)
 	app.Mount.File("cache", "data/downloads/other.bin", 1*unit)
 	app.Scan(t) // 2026-03-02
 
 	app.Clock.Advance(day)
 	app.Mount.File("disk2", "data/media/movies/new.mkv", 2*unit)
-	app.Mount.Link("disk2", "data/media/movies/new.mkv", "data/torrents/new.mkv")
+	app.Mount.Link("disk2", "data/media/movies/new.mkv", "data/seeding/new.mkv")
 	app.Scan(t) // 2026-03-03
 
 	movies := create(t, app, "Movies", "#e5484d")
-	torrents := create(t, app, "Torrents", "#8e4ec6")
+	seeding := create(t, app, "Seeding", "#8e4ec6")
 	assign(t, app, "data/media/movies", movies.ID)
-	assign(t, app, "data/torrents", torrents.ID)
+	assign(t, app, "data/seeding", seeding.ID)
 
 	check := func(when string, ids []int64, want map[int64][]int64) {
 		t.Helper()
@@ -99,14 +99,14 @@ func TestTheTrendSplitsEachDayByRankAndAReorderSplitsThePastAgain(t *testing.T) 
 	}
 	// Each day's parts add up to what that day's Scan saw, 8 then 10 units:
 	// film.mkv and new.mkv once, in the higher Rank.
-	check("Movies over Torrents", []int64{movies.ID, torrents.ID}, map[int64][]int64{
-		movies.ID:   {5 * unit, 7 * unit},
-		torrents.ID: {2 * unit, 2 * unit},
+	check("Movies over Seeding", []int64{movies.ID, seeding.ID}, map[int64][]int64{
+		movies.ID:  {5 * unit, 7 * unit},
+		seeding.ID: {2 * unit, 2 * unit},
 	})
-	reorder(t, app, torrents.ID, movies.ID)
-	check("Torrents over Movies", []int64{torrents.ID, movies.ID}, map[int64][]int64{
-		torrents.ID: {6 * unit, 8 * unit},
-		movies.ID:   {1 * unit, 1 * unit},
+	reorder(t, app, seeding.ID, movies.ID)
+	check("Seeding over Movies", []int64{seeding.ID, movies.ID}, map[int64][]int64{
+		seeding.ID: {6 * unit, 8 * unit},
+		movies.ID:  {1 * unit, 1 * unit},
 	})
 }
 

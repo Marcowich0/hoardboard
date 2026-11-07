@@ -109,13 +109,14 @@ func measure(t *tree.Tree, a Assignments, disk int) *Sizes {
 		clear(seen)
 		for j, f := range l.Folders {
 			link.Folders[j] = path(f)
-			if disk < 0 {
-				continue
-			}
-			// Once a Folder is seen, so are all above it.
-			for g := f; g != nil && !seen[g]; g = g.Parent {
-				seen[g] = true
-				linked[g] += l.Bytes
+		}
+		if disk >= 0 {
+			for _, f := range l.CountedFolders {
+				// Once a Folder is seen, so are all above it.
+				for g := f; g != nil && !seen[g]; g = g.Parent {
+					seen[g] = true
+					linked[g] += l.Bytes
+				}
 			}
 		}
 		links = append(links, link)
@@ -193,7 +194,7 @@ func MeasureBytes(b Bytes, a Assignments) *Sizes {
 	var ids []ID
 	for _, l := range b.Links {
 		ids = ids[:0]
-		for _, f := range l.Folders {
+		for _, f := range tree.CountingPaths(l.Folders) {
 			id, _, _ := a.Of(f)
 			ids = append(ids, id)
 		}

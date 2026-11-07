@@ -4,7 +4,7 @@ import { type CategoryBook, useCategories } from '../categories.ts'
 import { labelInk, mix, shade, type Theme, uncategorizedTints } from '../lib/colours.ts'
 import { formatBytes, formatCount, formatShare } from '../lib/format.ts'
 import { escapeHtml } from '../lib/html.ts'
-import { type FitNode, type FitRules, fitTreemap } from '../lib/treemap.ts'
+import { type FitNode, type FitRules, fitTreemap, tileBytes } from '../lib/treemap.ts'
 import { useCurrentTheme } from '../theme.ts'
 import { type Chrome, chartFont, chrome } from './chrome.ts'
 import EChart, { type ChartOption } from './EChart.tsx'
@@ -14,7 +14,7 @@ interface Tile {
   id: string
   name: string
   value: number
-  itemStyle: { color: string; borderColor: string }
+  itemStyle: { color: string; borderColor: string; borderWidth?: number; decal?: object }
   label: object
   upperLabel: object
   children?: Tile[]
@@ -88,12 +88,17 @@ export default function TreemapChart({
           const n = byId.get((p as unknown as { data: { id: string } }).data.id)
           if (!n) return ''
           if (n.kind === 'rest') {
-            return `<b>${formatCount(n.items ?? 0)} smaller items</b><br/>${formatBytes(n.size)} together`
+            return `<b>${formatCount(n.items ?? 0)} smaller items</b><br/>${formatBytes(tileBytes(n))} visible · ${formatBytes(n.countedElsewhereBytes ?? 0)} counted elsewhere`
           }
-          const look = book.look(n.categoryId)
-          const group = book.groupOf(n.categoryId)
+          const look = book.look(n.countedIn ? n.countedIn.categoryId : n.categoryId)
+          const group = book.groupOf(n.countedIn ? n.countedIn.categoryId : n.categoryId)
           const category = group ? `${escapeHtml(group.name)} › ${escapeHtml(look.name)}` : escapeHtml(look.name)
-          return `<b>${escapeHtml(n.name)}</b><br/>${formatBytes(n.size)} · ${formatShare(n.size, total)} of this folder<br/><span style="color:${c.muted}">${n.kind === 'file' ? 'File' : 'Folder'} · ${category}</span><br/><span style="color:${c.muted};font-size:11px">${escapeHtml(n.path)}</span>`
+          if (n.countedIn) {
+            return `<b>${escapeHtml(n.name)}</b><br/>${formatBytes(tileBytes(n))} · counted in ${category}<br/><span style="color:${c.muted}">Seeding here · excluded from this folder’s Size</span><br/>${escapeHtml(n.countedIn.path)}`
+          }
+          const elsewhere = (n.countedElsewhereBytes ?? 0) > 0
+            ? `<br/>${formatBytes(n.countedElsewhereBytes ?? 0)} seeding here · counted elsewhere` : ''
+          return `<b>${escapeHtml(n.name)}</b><br/>${formatBytes(n.size)} · ${formatShare(n.size, total)} of this folder<br/><span style="color:${c.muted}">${n.kind === 'file' ? 'File' : 'Folder'} · ${category}</span><br/><span style="color:${c.muted};font-size:11px">${escapeHtml(n.path)}</span>${elsewhere}`
         },
       },
       series: [
@@ -123,7 +128,7 @@ export default function TreemapChart({
               if (!n || !roomFor(id, 2400)) return ''
               if (n.kind === 'rest') return roomFor(id, 5500) ? `{size|${formatCount(n.items ?? 0)} more}` : ''
               return roomFor(id, 5500)
-                ? `{name|${richSafe(n.name)}}\n{size|${formatBytes(n.size)}}`
+                ? `{name|${richSafe(n.name)}}\n{size|${n.size === 0 && (n.countedElsewhereBytes ?? 0) > 0 ? '↗ Counted elsewhere' : formatBytes(n.size)}}`
                 : `{name|${richSafe(n.name)}}`
             },
           },
@@ -138,7 +143,7 @@ export default function TreemapChart({
               const id = (p.data as { id: string }).id
               const n = byId.get(id)
               if (!n || !roomFor(id, 4000)) return ''
-              return roomFor(id, 14000) ? `{name|${richSafe(n.name)}}  {size|${formatBytes(n.size)}}` : `{name|${richSafe(n.name)}}`
+              return roomFor(id, 14000) ? `{name|${richSafe(n.name)}}  {size|${n.size === 0 && (n.countedElsewhereBytes ?? 0) > 0 ? '↗ Counted elsewhere' : formatBytes(n.size)}}` : `{name|${richSafe(n.name)}}`
             },
           },
           // levels[1] is the Folder's children, levels[2] theirs, and so on:
@@ -164,7 +169,7 @@ export default function TreemapChart({
       {area > 0 && <EChart
       option={option}
       height="100%"
-      label="What this folder holds, nested a few levels deep, sized by Size"
+      label="What this folder holds; hatched seeding files count elsewhere"
       onClick={(e) => {
         const node = e.data ? byId.get((e.data as { id: string }).id) : undefined
         if (node && node.kind !== 'rest') onOpen({ ...node, children: undefined })
@@ -187,6 +192,8 @@ function tiles(nodes: FitNode[], book: CategoryBook, theme: Theme, c: Chrome, by
     let base: string
     if (n.kind === 'rest') {
       base = within ? mix(within, c.surface, 0.55) : c.grid
+    } else if (n.countedIn) {
+      base = book.look(n.countedIn.categoryId).colour
     } else if (n.categoryId !== null) {
       base = book.look(n.categoryId).colour
     } else {
@@ -194,7 +201,8 @@ function tiles(nodes: FitNode[], book: CategoryBook, theme: Theme, c: Chrome, by
       base = shade(tint, -0.05 * (depth - 1))
     }
     // Files sit back from folders: mixed a little with the surface.
-    const fill = n.kind === 'file' ? mix(base, c.surface, 0.3) : base
+    const elsewhere = n.size === 0 && (n.countedElsewhereBytes ?? 0) > 0
+    const fill = elsewhere ? mix(base, c.surface, 0.88) : n.kind === 'file' ? mix(base, c.surface, 0.3) : base
     // A Folder's frame and header: its colour, deeper.
     const frame = shade(base, theme === 'dark' ? 0.38 : 0.22)
     const ink = labelInk(fill)
@@ -202,8 +210,8 @@ function tiles(nodes: FitNode[], book: CategoryBook, theme: Theme, c: Chrome, by
     const tile: Tile = {
       id,
       name: n.name,
-      value: n.size,
-      itemStyle: { color: fill, borderColor: frame },
+      value: tileBytes(n),
+      itemStyle: { color: fill, borderColor: elsewhere ? base : frame, ...(elsewhere ? { borderWidth: 2, decal: { symbol: 'rect', dashArrayX: [1, 0], dashArrayY: [1, 7], rotation: -Math.PI / 4, color: mix(base, c.surface, 0.65) } } : {}) },
       label: {
         rich: {
           name: { color: ink, fontSize: depth === 1 ? 13 : 12, fontWeight: 600, lineHeight: depth === 1 ? 18 : 16 },
