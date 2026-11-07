@@ -35,8 +35,8 @@ export interface EChartProps {
   /** What the chart shows, for screen readers. */
   label: string
   onClick?: (event: ECElementEvent) => void
-  /** Called with the highlighted data index, or null when the pointer leaves. */
-  onHover?: (dataIndex: number | null) => void
+  /** Called with the highlighted data index (and its series), or null when the pointer leaves. */
+  onHover?: (dataIndex: number | null, seriesIndex?: number) => void
   className?: string
 }
 
@@ -59,7 +59,10 @@ export default function EChart({ option, height, label, onClick, onHover, classN
     const instance = echarts.init(el, null, { renderer: 'canvas' })
     chart.current = instance
     instance.on('click', (e) => handlers.current.onClick?.(e as ECElementEvent))
-    instance.on('mouseover', (e) => handlers.current.onHover?.((e as ECElementEvent).dataIndex ?? null))
+    instance.on('mouseover', (e) => {
+      const event = e as ECElementEvent
+      handlers.current.onHover?.(event.dataIndex ?? null, event.seriesIndex)
+    })
     instance.on('mouseout', () => handlers.current.onHover?.(null))
     instance.on('globalout', () => handlers.current.onHover?.(null))
     const observer = new ResizeObserver(() => instance.resize())

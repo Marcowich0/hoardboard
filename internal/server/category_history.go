@@ -23,7 +23,8 @@ type categoryPointJSON struct {
 
 // handleCategoryHistory answers a category's History: its full Size on each
 // day from the first Scan to today, under the current Assignments, each
-// physical file once (docs/adr/0005-category-history.md).
+// physical file once (docs/adr/0005-category-history.md). A group's covers
+// the categories in it too.
 func (s *Server) handleCategoryHistory(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	if q.Has("path") {
@@ -56,9 +57,10 @@ func (s *Server) handleCategoryHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	members := category.Members(list, id)
 	out := categoryHistoryJSON{CategoryID: id, Points: make([]categoryPointJSON, len(p.Sizes))}
 	for i, sz := range p.Sizes {
-		out.Points[i] = categoryPointJSON{Day: (p.From + history.Day(i)).String(), Size: sz.Size(id)}
+		out.Points[i] = categoryPointJSON{Day: (p.From + history.Day(i)).String(), Size: sz.Size(members...)}
 	}
 	writeJSON(w, http.StatusOK, out)
 }

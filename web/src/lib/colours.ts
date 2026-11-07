@@ -29,6 +29,18 @@ export const presets: readonly Preset[] = [
 /** Uncategorized: a neutral grey, so it never reads as one of the owner's categories. */
 export const uncategorizedColour: Record<Theme, string> = { light: '#9b9a94', dark: '#7d7c76' }
 
+/**
+ * Muted tints for what no category claims, where telling folders apart helps
+ * (the Explorer's treemap): low-chroma slate, sage, sand, mauve, teal and
+ * clay, so neighbouring uncategorized folders differ while staying well
+ * clear of the owner's saturated category colours. They mean "uncategorized"
+ * together; none of them is ever a category's.
+ */
+export const uncategorizedTints: Record<Theme, readonly string[]> = {
+  dark: ['#5d6674', '#5f6b5c', '#766a5a', '#6c6070', '#596b6b', '#735f58'],
+  light: ['#a9b2bf', '#adb9a7', '#c3b6a2', '#baacbe', '#a6bbbb', '#c4aba3'],
+}
+
 /** Unaccounted: a quieter grey, always drawn with a hatch so it differs from Uncategorized without colour. */
 export const unaccountedColour: Record<Theme, string> = { light: '#c9c7bf', dark: '#4a4945' }
 
@@ -52,4 +64,16 @@ export function labelInk(fill: string): string {
   }
   const luminance = 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
   return luminance > 0.4 ? '#0b0b0b' : '#ffffff'
+}
+
+/** a and b mixed: t 0 is a, 1 is b. Both "#rrggbb". */
+export function mix(a: string, b: string, t: number): string {
+  const ch = (hex: string, i: number) => parseInt(hex.slice(i, i + 2), 16)
+  const out = [1, 3, 5].map((i) => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * t))
+  return `#${out.map((v) => v.toString(16).padStart(2, '0')).join('')}`
+}
+
+/** A colour a little darker (amount > 0) or lighter (amount < 0): mixed with black or white. */
+export function shade(colour: string, amount: number): string {
+  return amount >= 0 ? mix(colour, '#000000', amount) : mix(colour, '#ffffff', -amount)
 }

@@ -107,7 +107,7 @@ export default function AddToCategory({
           const look = book.look(c.id)
           const selected = choice === c.id
           return (
-            <li key={c.id}>
+            <li key={c.id} className={c.groupId !== null ? 'ml-6' : ''}>
               <button
                 type="button"
                 role="radio"
@@ -118,7 +118,10 @@ export default function AddToCategory({
                 }`}
               >
                 <Swatch colour={look.colour} size={12} />
-                <span className="flex-1">{c.name}</span>
+                <span className="flex-1">
+                  {c.name}
+                  {book.membersOf(c.id).length > 0 && <span className="ml-1.5 text-[12px] text-muted">group</span>}
+                </span>
                 {own === c.id && <span className="text-[12px] text-muted">Current</span>}
                 {selected && <CheckIcon size={16} />}
               </button>

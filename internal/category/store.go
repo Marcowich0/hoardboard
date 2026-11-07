@@ -17,6 +17,9 @@ import (
 //     ranks stay 1…n.
 //   - assignments: one per Folder (path is unique); deleting a category
 //     deletes its Assignments.
+//   - categories.group_id: the group a category is in, NULL at the top.
+//     Groups are one level deep, and ranks run in group order: each
+//     top-level category, then the categories in it (see normalize).
 var migrations = []string{
 	`CREATE TABLE categories (
 		id     INTEGER PRIMARY KEY,
@@ -29,6 +32,7 @@ var migrations = []string{
 		category_id INTEGER NOT NULL REFERENCES categories (id) ON DELETE CASCADE
 	);
 	CREATE INDEX assignments_category ON assignments (category_id);`,
+	`ALTER TABLE categories ADD COLUMN group_id INTEGER REFERENCES categories (id) ON DELETE SET NULL;`,
 }
 
 // Category is one of the owner's categories.
@@ -37,12 +41,18 @@ type Category struct {
 	Name   string
 	Colour string // "#rrggbb"
 	Rank   int    // 1 is the highest
+	// Group is the category this one is in, 0 for none. A category in a
+	// Group has no categories in it.
+	Group ID
 }
 
 // Input is a new category's name and colour, or the changes to one (nil
 // keeps the field).
 type Input struct {
 	Name, Colour *string
+	// Group, when not nil, puts the category in the category *Group, or
+	// at the top level when *Group is 0.
+	Group *ID
 }
 
 // The kinds of error the Store answers, for errors.Is; the error's message
@@ -80,7 +90,7 @@ func Open(ctx context.Context, d *sql.DB) (*Store, error) {
 
 // List is every Category, highest Rank first.
 func (s *Store) List(ctx context.Context) ([]Category, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, name, colour, rank FROM categories ORDER BY rank, id`)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, name, colour, rank, COALESCE(group_id, 0) FROM categories ORDER BY rank, id`)
 	if err != nil {
 		return nil, err
 	}
@@ -88,12 +98,24 @@ func (s *Store) List(ctx context.Context) ([]Category, error) {
 	out := []Category{}
 	for rows.Next() {
 		var c Category
-		if err := rows.Scan(&c.ID, &c.Name, &c.Colour, &c.Rank); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.Colour, &c.Rank, &c.Group); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// Members is id and every category in it: what a category's Size and
+// History cover.
+func Members(list []Category, id ID) []ID {
+	out := []ID{id}
+	for _, c := range list {
+		if c.Group == id {
+			out = append(out, c.ID)
+		}
+	}
+	return out
 }
 
 // Assignments is every Assignment.
@@ -135,14 +157,21 @@ func (s *Store) Create(ctx context.Context, in Input) (ID, error) {
 	if err != nil {
 		return 0, err
 	}
-	id, err := res.LastInsertId()
+	n, err := res.LastInsertId()
 	if err != nil {
 		return 0, err
 	}
-	return ID(id), tx.Commit()
+	id := ID(n)
+	if in.Group != nil {
+		if err := setGroup(ctx, tx, id, *in.Group); err != nil {
+			return 0, err
+		}
+	}
+	return id, tx.Commit()
 }
 
-// Update renames and/or recolours the category id.
+// Update renames, recolours and/or moves the category id into another
+// group (or out of one).
 func (s *Store) Update(ctx context.Context, id ID, in Input) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -166,11 +195,102 @@ func (s *Store) Update(ctx context.Context, id ID, in Input) error {
 			return err
 		}
 	}
+	if in.Group != nil {
+		if err := setGroup(ctx, tx, id, *in.Group); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
-// Delete removes the category id and its Assignments; the categories
-// below it move up one Rank.
+// setGroup puts the category id into the category group (0: the top
+// level), last in it, and renumbers the ranks. Groups are one level deep:
+// group must be at the top level, and id must have no categories in it.
+func setGroup(ctx context.Context, tx *sql.Tx, id, group ID) error {
+	if group != 0 {
+		if group == id {
+			return fail(ErrInvalid, "A category can't be in itself")
+		}
+		var name string
+		var above ID
+		err := tx.QueryRowContext(ctx, `SELECT name, COALESCE(group_id, 0) FROM categories WHERE id = ?`, group).Scan(&name, &above)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fail(ErrInvalid, "No category %d to put it in", group)
+		}
+		if err != nil {
+			return err
+		}
+		if above != 0 {
+			return fail(ErrInvalid, "%s is itself in a group; groups are one level deep", name)
+		}
+		var inside int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM categories WHERE group_id = ?`, id).Scan(&inside); err != nil {
+			return err
+		}
+		if inside > 0 {
+			return fail(ErrInvalid, "A category with categories in it can't go into another one; groups are one level deep")
+		}
+	}
+	var was ID
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(group_id, 0) FROM categories WHERE id = ?`, id).Scan(&was); err != nil {
+		return err
+	}
+	if was == group {
+		return nil
+	}
+	// Last in its new group: below every other category for now, which
+	// normalize turns into below the group's others.
+	if _, err := tx.ExecContext(ctx, `UPDATE categories SET group_id = NULLIF(?, 0),
+		rank = (SELECT MAX(rank) + 1 FROM categories) WHERE id = ?`, group, id); err != nil {
+		return err
+	}
+	return normalize(ctx, tx)
+}
+
+// normalize renumbers the ranks 1…n in group order: each top-level
+// category in rank order, followed by the categories in it in rank order.
+// So a group's categories are always next to each other, under it.
+func normalize(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id, COALESCE(group_id, 0) FROM categories ORDER BY rank, id`)
+	if err != nil {
+		return err
+	}
+	type row struct{ id, group ID }
+	var all []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.group); err != nil {
+			rows.Close()
+			return err
+		}
+		all = append(all, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	order := make([]ID, 0, len(all))
+	for _, top := range all {
+		if top.group != 0 {
+			continue
+		}
+		order = append(order, top.id)
+		for _, in := range all {
+			if in.group == top.id {
+				order = append(order, in.id)
+			}
+		}
+	}
+	for i, id := range order {
+		if _, err := tx.ExecContext(ctx, `UPDATE categories SET rank = ? WHERE id = ?`, i+1, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Delete removes the category id and its Assignments; the categories in
+// it move to the top level, where it was, and the ones below it move up.
 func (s *Store) Delete(ctx context.Context, id ID) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -185,14 +305,17 @@ func (s *Store) Delete(ctx context.Context, id ID) error {
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE categories SET rank = rank - 1 WHERE rank > ?`, rank); err != nil {
+	// The foreign key moved its categories to the top level; they keep
+	// their ranks, so they now stand where it stood.
+	if err := normalize(ctx, tx); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 // Reorder sets every category's Rank: ids is every category id once,
-// highest Rank first.
+// highest Rank first. The order is then kept to group order (normalize):
+// a group's categories follow it, in the order ids gives them.
 func (s *Store) Reorder(ctx context.Context, ids []ID) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -221,6 +344,9 @@ func (s *Store) Reorder(ctx context.Context, ids []ID) error {
 		} else if changed == 0 {
 			return fail(ErrInvalid, "The order names category %d, which doesn't exist", id)
 		}
+	}
+	if err := normalize(ctx, tx); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

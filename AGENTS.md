@@ -85,7 +85,7 @@ internal/config/      settings from HOARDBOARD_* variables
 internal/clock/       Clock (now/today), System and Fake
 internal/db/          opens hoardboard.db; Migrate(ctx, db, module, steps) per module
 internal/inventory/   the Disks Unraid lists (disks.ini, var.ini) and their live Used/Free space (statfs)
-internal/category/    Categories and Assignments (store), and the engine: Measure/MeasureBytes (what each category takes), Split (Used space by Rank), MeasurePast (each day of History)
+internal/category/    Categories, their Groups and Assignments (store), and the engine: Measure/MeasureBytes/MeasureDisk (what each category takes, overall or on one Disk), Split (Used space by Rank), MeasurePast (each day of History)
 internal/tree/        the merged tree of Share paths: Builder (the merger), Finish (Size with each hardlinked file once, items, bytes per Disk, Shared bytes, Hardlinks), Largest (the largest files below a Folder), snapshot codec
 internal/scan/        Scanner: one Scan at a time (Start joins a running one), metadata-only walk, scans + snapshot tables
 internal/history/     daily History of every Folder (folders + folder_history), of the hardlinked files by their Folders (link_sets + link_history) and of each Disk's Used space (disk_history), written by a Scan's AfterScans; Series carries values forward; renames, kept when an Assignment is re-pointed, which reads follow

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
-import { api, type Entry, type Period, type Tree } from '../api/index.ts'
+import { api, type Entry, type Period, type Tree, type TreemapNode } from '../api/index.ts'
 import { useApi } from '../api/useApi.ts'
 import { useCategories } from '../categories.ts'
 import DiskSplitChart from '../charts/DiskSplitChart.tsx'
@@ -18,7 +18,9 @@ import {
 } from '../components/icons.tsx'
 import { Button, Card, ErrorNote, Segmented, Skeleton, Swatch } from '../components/ui.tsx'
 import { formatBytes, formatChange, formatCount, formatShare } from '../lib/format.ts'
+import { uncategorizedTints } from '../lib/colours.ts'
 import { breadcrumbs, explorerHref, parentPath, periodFrom } from '../lib/paths.ts'
+import { useCurrentTheme } from '../theme.ts'
 import { type SortDir, type SortKey, sortEntries } from '../lib/sort.ts'
 
 const periodOptions: { value: Period; label: string }[] = [
@@ -85,8 +87,9 @@ function ExplorerBody({ tree, period, loading }: { tree: Tree; period: Period; l
   const look = folder.category ? book.look(folder.category.categoryId) : null
   const isRoot = tree.path === ''
 
-  const open = (entry: Entry) => {
-    if (entry.kind === 'folder') navigate(explorerHref(entry.path, period))
+  const openTile = (node: TreemapNode) => {
+    const folder = node.kind === 'folder' ? node.path : parentPath(node.path)
+    if (folder !== tree.path) navigate(explorerHref(folder, period))
   }
   const setPeriod = (p: Period) => {
     setQuery(p === '30d' ? {} : { period: p }, { replace: true })
@@ -159,20 +162,7 @@ function ExplorerBody({ tree, period, loading }: { tree: Tree; period: Period; l
       </div>
 
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-3">
-        <Card
-          className="lg:col-span-2"
-          title="What it holds"
-          subtitle="Sized by Size, coloured by category; files are lighter. Click a folder to open it."
-          bodyClassName="p-3 sm:p-4"
-        >
-          {tree.children.length > 0 ? (
-            <div className="h-[300px] sm:h-[410px]">
-              <TreemapChart entries={tree.children} total={folder.size} onOpen={open} />
-            </div>
-          ) : (
-            <p className="py-16 text-center text-sm text-muted">This folder is empty</p>
-          )}
-        </Card>
+        <WhatItHolds tree={tree} onOpen={openTile} />
         <div className="grid gap-4 sm:gap-5 sm:grid-cols-2 lg:grid-cols-1">
           <Card title="On disks" subtitle="Where Unraid put its bytes">
             {folder.disks.length > 0 ? (
@@ -195,6 +185,64 @@ function ExplorerBody({ tree, period, loading }: { tree: Tree; period: Period; l
 
       {adding && <AddToCategory path={adding.path} current={adding.current} onClose={() => setAdding(null)} />}
     </div>
+  )
+}
+
+/** The nested treemap of the folder, with a key to its colours. */
+function WhatItHolds({ tree, onOpen }: { tree: Tree; onOpen: (node: TreemapNode) => void }) {
+  const { data } = useApi(() => api.treemap(tree.path), [tree.path])
+  const book = useCategories()
+  const theme = useCurrentTheme()
+  const current = data?.path === tree.path ? data : null
+  // The categories with a tile here, for the key.
+  const shown = useMemo(() => {
+    const ids = new Set<number>()
+    const walk = (nodes: TreemapNode[]) => {
+      for (const n of nodes) {
+        if (n.categoryId !== null) ids.add(n.categoryId)
+        if (n.children) walk(n.children)
+      }
+    }
+    walk(current?.children ?? [])
+    return book.categories.filter((c) => ids.has(c.id))
+  }, [book.categories, current])
+
+  return (
+    <Card
+      className="lg:col-span-2"
+      title="What it holds"
+      subtitle="Each folder shows what is inside it, sized by Size. Click a tile to open its folder."
+      bodyClassName="p-3 sm:p-4"
+    >
+      {tree.children.length === 0 ? (
+        <p className="py-16 text-center text-sm text-muted">This folder is empty</p>
+      ) : current ? (
+        <>
+          <div className="h-[340px] sm:h-[480px]">
+            <TreemapChart nodes={current.children} total={current.size} onOpen={onOpen} />
+          </div>
+          <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-1 text-[12px] text-ink-2">
+            {shown.map((c) => (
+              <li key={c.id} className="flex items-center gap-1.5">
+                <Swatch colour={book.look(c.id).colour} size={9} />
+                {c.name}
+              </li>
+            ))}
+            <li className="flex items-center gap-1.5">
+              <span className="flex" aria-hidden="true">
+                {uncategorizedTints[theme].slice(0, 4).map((t) => (
+                  <Swatch key={t} colour={t} size={9} className="-mr-0.5 rounded-[2px]" />
+                ))}
+              </span>
+              Uncategorized
+            </li>
+            <li className="text-muted">Files are lighter than folders</li>
+          </ul>
+        </>
+      ) : (
+        <Skeleton className="h-[340px] sm:h-[480px]" />
+      )}
+    </Card>
   )
 }
 

@@ -37,10 +37,13 @@ type uncategorizedJSON struct {
 
 // categoryJSON is Category.
 type categoryJSON struct {
-	ID          category.ID      `json:"id"`
-	Name        string           `json:"name"`
-	Colour      string           `json:"colour"`
-	Rank        int              `json:"rank"`
+	ID     category.ID `json:"id"`
+	Name   string      `json:"name"`
+	Colour string      `json:"colour"`
+	Rank   int         `json:"rank"`
+	// GroupID is the group it is in, null at the top level.
+	GroupID *category.ID `json:"groupId"`
+	// Size, SharedWith: a group's cover the categories in it too.
 	Size        int64            `json:"size"`
 	SharedWith  []sharedWithJSON `json:"sharedWith"`
 	Assignments []assignmentJSON `json:"assignments"`
@@ -69,11 +72,45 @@ func (s *Server) handleCategories(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// categoryInputJSON is CategoryInput: both fields for POST, either for
-// PATCH.
+// categoryInputJSON is CategoryInput: name and colour for POST, any field
+// for PATCH.
 type categoryInputJSON struct {
 	Name   *string `json:"name"`
 	Colour *string `json:"colour"`
+	// GroupID: a category id puts it in that group, null at the top
+	// level; left out, it stays where it is.
+	GroupID optionalID `json:"groupId"`
+}
+
+// optionalID is a JSON field that may be left out (set false), null (set,
+// id 0) or a category id.
+type optionalID struct {
+	set bool
+	id  category.ID
+}
+
+func (o *optionalID) UnmarshalJSON(b []byte) error {
+	o.set = true
+	if string(b) == "null" {
+		o.id = 0
+		return nil
+	}
+	if err := json.Unmarshal(b, &o.id); err != nil {
+		return err
+	}
+	if o.id <= 0 {
+		return errors.New("groupId: want a category id or null")
+	}
+	return nil
+}
+
+// input is in as the Store takes it.
+func (in categoryInputJSON) input() category.Input {
+	out := category.Input{Name: in.Name, Colour: in.Colour}
+	if in.GroupID.set {
+		out.Group = &in.GroupID.id
+	}
+	return out
 }
 
 // handleCreateCategory adds a category below the others in Rank and
@@ -83,7 +120,7 @@ func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	if !readJSONBody(w, r, &in) {
 		return
 	}
-	id, err := s.cats.Create(r.Context(), category.Input{Name: in.Name, Colour: in.Colour})
+	id, err := s.cats.Create(r.Context(), in.input())
 	if err != nil {
 		s.categoryError(w, err)
 		return
@@ -91,8 +128,8 @@ func (s *Server) handleCreateCategory(w http.ResponseWriter, r *http.Request) {
 	s.writeCategory(w, r, http.StatusCreated, id)
 }
 
-// handleUpdateCategory renames and/or recolours a category and answers
-// with it.
+// handleUpdateCategory renames, recolours and/or regroups a category and
+// answers with it.
 func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
 	id, ok := categoryID(w, r)
 	if !ok {
@@ -102,7 +139,7 @@ func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
 	if !readJSONBody(w, r, &in) {
 		return
 	}
-	if err := s.cats.Update(r.Context(), id, category.Input{Name: in.Name, Colour: in.Colour}); err != nil {
+	if err := s.cats.Update(r.Context(), id, in.input()); err != nil {
 		s.categoryError(w, err)
 		return
 	}
@@ -110,7 +147,8 @@ func (s *Server) handleUpdateCategory(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeleteCategory deletes a category and its Assignments: their
-// Folders go to Uncategorized, or to a category assigned above them.
+// Folders go to Uncategorized, or to a category assigned above them. The
+// categories in it move to the top level.
 func (s *Server) handleDeleteCategory(w http.ResponseWriter, r *http.Request) {
 	id, ok := categoryID(w, r)
 	if !ok {
@@ -280,8 +318,9 @@ func (s *Server) categoriesJSON(r *http.Request) (categoriesJSON, error) {
 		Uncategorized: uncategorizedJSON{Size: sizes.Uncategorized()},
 	}
 	for i, c := range list {
+		members := category.Members(list, c.ID)
 		shared := []sharedWithJSON{}
-		for _, sh := range sizes.SharedWith(c.ID) {
+		for _, sh := range sizes.SharedWith(members...) {
 			j := sharedWithJSON{Bytes: sh.Bytes}
 			if sh.With != category.Uncategorized {
 				j.CategoryID = &sh.With
@@ -293,12 +332,17 @@ func (s *Server) categoriesJSON(r *http.Request) (categoriesJSON, error) {
 			assignments = []assignmentJSON{}
 		}
 		slices.SortFunc(assignments, func(a, b assignmentJSON) int { return cmp.Compare(a.Path, b.Path) })
+		var group *category.ID
+		if c.Group != 0 {
+			group = &c.Group
+		}
 		out.Categories = append(out.Categories, categoryJSON{
 			ID:          c.ID,
 			Name:        c.Name,
 			Colour:      c.Colour,
 			Rank:        i + 1,
-			Size:        sizes.Size(c.ID),
+			GroupID:     group,
+			Size:        sizes.Size(members...),
 			SharedWith:  shared,
 			Assignments: assignments,
 		})

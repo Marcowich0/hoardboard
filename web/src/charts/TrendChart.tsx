@@ -21,7 +21,12 @@ export default function TrendChart({ trend, from, height = 300 }: { trend: Trend
     const c = chrome(theme)
     const days = trend.days.slice(from)
     const layers = [
-      ...trend.categories.map((s) => ({ ...book.look(s.categoryId), bytes: s.bytes })),
+      ...trend.categories.map((s) => {
+        const look = book.look(s.categoryId)
+        // A group's own layer is its folders without its categories: "Other Media".
+        const name = book.membersOf(s.categoryId).length > 0 ? `Other ${look.name}` : look.name
+        return { ...look, name, bytes: s.bytes }
+      }),
       { ...book.look(null), bytes: trend.uncategorized },
       { ...book.unaccounted, bytes: trend.unaccounted },
     ].map((l) => ({ ...l, bytes: l.bytes.slice(from) }))

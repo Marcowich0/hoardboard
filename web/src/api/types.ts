@@ -43,6 +43,12 @@ export interface Disk {
   size: number
   used: number
   free: number
+  /**
+   * This Disk's Used space split like the donut, from the bytes the latest
+   * Scan found on it (a hardlinked file is on one Disk only). The parts add
+   * up to `used`.
+   */
+  split: UsedSplit
 }
 
 /** Shown for information only: parity is never usable space. */
@@ -143,6 +149,34 @@ export interface FileEntry {
   categoryId: number | null
 }
 
+// GET /api/treemap?path= ----------------------------------------------------
+
+/**
+ * A Folder of the latest Scan as a nested treemap: its children, and theirs,
+ * the largest Folders opened first, up to about 1500 nodes. Items too small
+ * to see fold into one "rest" node per Folder.
+ */
+export interface Treemap {
+  path: string
+  size: number
+  /** Largest first. */
+  children: TreemapNode[]
+}
+
+export interface TreemapNode {
+  kind: 'folder' | 'file' | 'rest'
+  /** "" for the rest. */
+  name: string
+  path: string
+  size: number
+  /** Its effective category; null is Uncategorized (and the rest). */
+  categoryId: number | null
+  /** For the rest: how many items it stands for. */
+  items?: number
+  /** A Folder the treemap opened; a closed one has none. */
+  children?: TreemapNode[]
+}
+
 // GET /api/largest?path= -----------------------------------------------------
 
 export interface Largest {
@@ -189,11 +223,22 @@ export interface Category {
   name: string
   /** "#rrggbb". */
   colour: string
-  /** 1 is the highest. */
+  /**
+   * 1 is the highest. Ranks run in group order: a group, then the
+   * categories in it, then the next top-level category.
+   */
   rank: number
-  /** The full Size, Shared bytes included, each physical file counted once. */
+  /** The group it is in; null at the top level. Groups are one level deep. */
+  groupId: number | null
+  /**
+   * The full Size, Shared bytes included, each physical file counted once.
+   * A group's covers the categories in it too.
+   */
   size: number
-  /** "also in X": bytes this category shares with others. categoryId null is Uncategorized. */
+  /**
+   * "also in X": bytes this category (a group: with the categories in it)
+   * shares with others. categoryId null is Uncategorized.
+   */
   sharedWith: { categoryId: number | null; bytes: number }[]
   assignments: Assignment[]
 }
@@ -210,6 +255,8 @@ export interface Assignment {
 export interface CategoryInput {
   name: string
   colour: string
+  /** The group to put it in, null for the top level; left out, it stays where it is. */
+  groupId?: number | null
 }
 
 // /api/scan -------------------------------------------------------------------
@@ -240,6 +287,7 @@ export interface Api {
   health(): Promise<HealthReport>
   overview(): Promise<Overview>
   tree(path: string, period: Period): Promise<Tree>
+  treemap(path: string): Promise<Treemap>
   largest(path: string): Promise<Largest>
   folderHistory(path: string): Promise<FolderHistory>
   categoryHistory(categoryId: number): Promise<History>

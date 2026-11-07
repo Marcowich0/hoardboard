@@ -14,6 +14,7 @@ import type {
   ScanRequestResult,
   ScanStatus,
   Tree,
+  Treemap,
 } from './types.ts'
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -67,6 +68,10 @@ export const overview = () => getJSON<Overview>('/api/overview')
 export const tree = (path: string, period: Period) =>
   getJSON<Tree>(`/api/tree?${new URLSearchParams({ path, period }).toString()}`)
 
+/** GET /api/treemap: a Folder of the latest Scan, nested a few levels deep, the largest first. */
+export const treemap = (path: string) =>
+  getJSON<Treemap>(`/api/treemap?${new URLSearchParams({ path }).toString()}`)
+
 /**
  * GET /api/largest: the 20 largest files anywhere below a Folder of the latest
  * Scan, largest first; a hardlinked file once, by its first path in name order.
@@ -96,7 +101,7 @@ export const categories = () => getJSON<Categories>('/api/categories')
 /** POST /api/categories: a new category, ranked below the others. */
 export const createCategory = (input: CategoryInput) => sendJSON<Category>('POST', '/api/categories', input)
 
-/** PATCH /api/categories/{id}: renames and/or recolours a category. */
+/** PATCH /api/categories/{id}: renames, recolours and/or moves a category into a group (or out). */
 export const updateCategory = (id: number, input: Partial<CategoryInput>) =>
   sendJSON<Category>('PATCH', `/api/categories/${id}`, input)
 

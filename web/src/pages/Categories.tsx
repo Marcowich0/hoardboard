@@ -15,7 +15,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useId, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { api, type Category, type CategoryInput } from '../api/index.ts'
 import { change, useApi } from '../api/useApi.ts'
@@ -104,7 +104,7 @@ export default function Categories() {
       {creating && (
         <CategoryEditor
           title="New category"
-          initial={{ name: '', colour: suggestColour(book.categories.map((c) => c.colour)) }}
+          initial={{ name: '', colour: suggestColour(book.categories.map((c) => c.colour)), groupId: null }}
           confirm="Create"
           onSave={async (input) => {
             const created = await change(api.createCategory(input))
@@ -141,42 +141,86 @@ function EmptyState({ onCreate, uncategorized }: { onCreate: () => void; uncateg
 function RankList({ selectedId }: { selectedId: number | null }) {
   const book = useCategories()
   // A dragged order shows at once, until the server's order catches up; a
-  // category added or deleted meanwhile makes it stale, so the server's wins.
-  const [pending, setPending] = useState<number[] | null>(null)
+  // category added, deleted or regrouped meanwhile makes it stale, so the
+  // server's wins.
+  const [pending, setPending] = useState<{ order: number[]; server: string } | null>(null)
   const serverOrder = book.categories.map((c) => c.id)
-  const order =
-    pending && pending.length === serverOrder.length && serverOrder.every((id) => pending.includes(id))
-      ? pending
-      : serverOrder
+  const serverKey = book.categories.map((c) => `${c.id}<${c.groupId}`).join(',')
+  const order = pending && pending.server === serverKey ? pending.order : serverOrder
   const byId = useMemo(() => new Map(book.categories.map((c) => [c.id, c])), [book.categories])
   const largest = Math.max(1, ...book.categories.map((c) => c.size), book.uncategorizedSize)
+  const tops = order.filter((id) => byId.get(id)?.groupId === null)
+  const membersOf = (id: number) => order.filter((m) => byId.get(m)?.groupId === id)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   )
 
+  // A top-level category moves with its group; a category in a group moves
+  // within it. Moving into or out of a group is in the category's Edit.
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     if (!over || active.id === over.id) return
-    const next = arrayMove(order, order.indexOf(Number(active.id)), order.indexOf(Number(over.id)))
-    setPending(next)
+    const from = byId.get(Number(active.id))
+    let to = byId.get(Number(over.id))
+    // A group dragged over another group's category: over that group.
+    if (from?.groupId === null && to?.groupId != null) to = byId.get(to.groupId)
+    if (!from || !to || from.id === to.id || from.groupId !== to.groupId) return
+    let next: number[]
+    if (from.groupId === null) {
+      const moved = arrayMove(tops, tops.indexOf(from.id), tops.indexOf(to.id))
+      next = moved.flatMap((id) => [id, ...membersOf(id)])
+    } else {
+      const members = membersOf(from.groupId)
+      const moved = arrayMove(members, members.indexOf(from.id), members.indexOf(to.id))
+      next = tops.flatMap((id) => [id, ...(id === from.groupId ? moved : membersOf(id))])
+    }
+    setPending({ order: next, server: serverKey })
     change(api.reorderCategories(next)).catch(() => setPending(null))
   }
 
   return (
     <Card
       title="Rank"
-      subtitle="Drag to reorder. Where categories share bytes, the higher one owns them in the overview."
+      subtitle="Drag to reorder. Where categories share bytes, the higher one owns them in the overview. A group keeps its categories under it."
       bodyClassName="p-2 sm:p-3"
     >
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-        <SortableContext items={order} strategy={verticalListSortingStrategy}>
+        <SortableContext items={tops} strategy={verticalListSortingStrategy}>
           <ol className="space-y-1">
-            {order.map((id, i) => {
+            {tops.map((id) => {
               const category = byId.get(id)
-              return category ? (
-                <RankRow key={id} category={category} rank={i + 1} selected={id === selectedId} largest={largest} />
-              ) : null
+              if (!category) return null
+              const members = membersOf(id)
+              return (
+                <RankRow
+                  key={id}
+                  category={category}
+                  rank={order.indexOf(id) + 1}
+                  selected={id === selectedId}
+                  largest={largest}
+                  members={members.length}
+                >
+                  {members.length > 0 && (
+                    <SortableContext items={members} strategy={verticalListSortingStrategy}>
+                      <ol className="mt-1 ml-5 space-y-1 border-l border-line pl-1.5">
+                        {members.map((m) => {
+                          const member = byId.get(m)
+                          return member ? (
+                            <RankRow
+                              key={m}
+                              category={member}
+                              rank={order.indexOf(m) + 1}
+                              selected={m === selectedId}
+                              largest={largest}
+                            />
+                          ) : null
+                        })}
+                      </ol>
+                    </SortableContext>
+                  )}
+                </RankRow>
+              )
             })}
           </ol>
         </SortableContext>
@@ -202,11 +246,17 @@ function RankRow({
   rank,
   selected,
   largest,
+  members = 0,
+  children,
 }: {
   category: Category
   rank: number
   selected: boolean
   largest: number
+  /** How many categories are in it, if it is a group. */
+  members?: number
+  /** The group's own list, under its row. */
+  children?: ReactNode
 }) {
   const book = useCategories()
   const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
@@ -219,10 +269,10 @@ function RankRow({
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`relative rounded-xl ${isDragging ? 'z-10 shadow-xl ring-1 ring-line-strong' : ''}`}
+      className={`rounded-xl ${isDragging ? 'relative z-10 bg-card shadow-xl ring-1 ring-line-strong' : ''}`}
     >
       <div
-        className={`grid grid-cols-[1.5rem_1.25rem_auto_1fr_auto] items-center gap-2 rounded-xl px-2 py-2 transition-colors ${
+        className={`relative grid grid-cols-[1.5rem_1.25rem_auto_1fr_auto] items-center gap-2 rounded-xl px-2 py-2 transition-colors ${
           selected ? 'bg-raised' : isDragging ? 'bg-card' : 'hover:bg-raised/60'
         }`}
       >
@@ -230,7 +280,7 @@ function RankRow({
           ref={setActivatorNodeRef}
           type="button"
           aria-label={`Move ${category.name}, rank ${rank}`}
-          className="flex h-8 w-6 cursor-grab touch-none items-center justify-center rounded-md text-muted hover:bg-card hover:text-ink active:cursor-grabbing"
+          className="relative z-[1] flex h-8 w-6 cursor-grab touch-none items-center justify-center rounded-md text-muted hover:bg-card hover:text-ink active:cursor-grabbing"
           {...attributes}
           {...listeners}
         >
@@ -243,7 +293,12 @@ function RankRow({
           className="min-w-0 after:absolute after:inset-0 after:left-14 after:content-['']"
         >
           <span className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-medium">{category.name}</span>
+            <span className={`truncate text-sm ${members > 0 ? 'font-semibold' : 'font-medium'}`}>{category.name}</span>
+            {members > 0 && (
+              <span className="shrink-0 rounded-md bg-raised px-1.5 text-[11px] font-medium text-muted">
+                group · {members}
+              </span>
+            )}
             {missing > 0 && (
               <span title={`${missing} missing folder${missing > 1 ? 's' : ''}`} className="text-warn">
                 <WarningIcon size={14} />
@@ -262,6 +317,7 @@ function RankRow({
           <ChevronRightIcon size={14} className="text-muted lg:hidden" />
         </span>
       </div>
+      {children}
     </li>
   )
 }
@@ -278,6 +334,9 @@ function CategoryDetail({ category }: { category: Category }) {
   const { data: history } = useApi(() => api.categoryHistory(category.id), [category.id])
   const missing = category.assignments.filter((a) => a.missing)
   const sharedTotal = category.sharedWith.reduce((s, x) => s + x.bytes, 0)
+  const group = book.groupOf(category.id)
+  const members = book.membersOf(category.id)
+  const [adding, setAdding] = useState(false)
 
   return (
     <div className="space-y-4 sm:space-y-5">
@@ -298,6 +357,16 @@ function CategoryDetail({ category }: { category: Category }) {
             <p className="text-[13px] text-muted">
               Rank {category.rank} of {book.categories.length} · {formatCount(category.assignments.length)} folder
               {category.assignments.length === 1 ? '' : 's'}
+              {members.length > 0 && ` · a group of ${members.length} ${members.length === 1 ? 'category' : 'categories'}`}
+              {group && (
+                <>
+                  {' · in '}
+                  <Link to={`/categories/${group.id}`} className="inline-flex items-center gap-1 text-ink-2 hover:underline">
+                    <Swatch colour={book.look(group.id).colour} size={8} />
+                    {group.name}
+                  </Link>
+                </>
+              )}
             </p>
           </div>
           <div className="flex gap-2">
@@ -317,7 +386,10 @@ function CategoryDetail({ category }: { category: Category }) {
             <p className="text-[13px] font-medium text-muted">Size</p>
             <p className="mt-1 text-4xl font-semibold tracking-tight">{formatBytes(category.size)}</p>
             <p className="mt-1 text-[13px] text-muted">
-              {sharedTotal > 0 ? 'Shared bytes included, each file once' : 'Nothing shared with other categories'}
+              {members.length > 0 ? 'With the categories in it; ' : ''}
+              {sharedTotal > 0
+                ? 'shared bytes included, each file once'
+                : `nothing shared with ${members.length > 0 ? 'categories outside it' : 'other categories'}`}
             </p>
           </div>
           {category.sharedWith.length > 0 && (
@@ -352,7 +424,9 @@ function CategoryDetail({ category }: { category: Category }) {
                     book.categories.findIndex((c) => c.id === s.categoryId) < category.rank - 1,
                 )
                   ? 'In the overview, shared bytes go to whichever category ranks higher.'
-                  : `In the overview, ${category.name} owns these bytes: it ranks higher.`}
+                  : members.length > 0
+                    ? `In the overview, these bytes stay in ${category.name}: it ranks higher.`
+                    : `In the overview, ${category.name} owns these bytes: it ranks higher.`}
               </p>
             </div>
           )}
@@ -374,7 +448,52 @@ function CategoryDetail({ category }: { category: Category }) {
         </div>
       )}
 
-      <Card title="Trend" subtitle="Its Size per day, with today's folders applied to the past too">
+      {members.length > 0 && (
+        <Card
+          title="In this group"
+          subtitle={`Each category alone; ${category.name}'s own folders are the rest`}
+          action={
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <PlusIcon size={15} />
+              New category in it
+            </Button>
+          }
+          bodyClassName="pt-3 pb-2"
+        >
+          <ul className="divide-y divide-line border-t border-line">
+            {members.map((m) => (
+              <li key={m.id}>
+                <Link
+                  to={`/categories/${m.id}`}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-raised/60 sm:px-5"
+                >
+                  <Swatch colour={book.look(m.id).colour} size={12} />
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{m.name}</span>
+                  <span className="hidden h-1.5 w-24 overflow-hidden rounded-full bg-track sm:block" aria-hidden="true">
+                    <span
+                      className="block h-full rounded-full"
+                      style={{
+                        width: `${Math.max(2, (m.size / Math.max(1, category.size)) * 100)}%`,
+                        backgroundColor: book.look(m.id).colour,
+                      }}
+                    />
+                  </span>
+                  <span className="tabular w-20 text-right text-[13px] text-ink-2">{formatBytes(m.size)}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <Card
+        title="Trend"
+        subtitle={
+          members.length > 0
+            ? 'Its Size per day, the categories in it included, with today\'s folders applied to the past too'
+            : "Its Size per day, with today's folders applied to the past too"
+        }
+      >
         {history ? (
           <HistoryChart history={history} colour={look.colour} name={category.name} height={240} />
         ) : (
@@ -446,12 +565,29 @@ function CategoryDetail({ category }: { category: Category }) {
       {editing && (
         <CategoryEditor
           title={`Edit ${category.name}`}
-          initial={{ name: category.name, colour: category.colour }}
+          editing={category}
+          initial={{ name: category.name, colour: category.colour, groupId: category.groupId }}
           confirm="Save"
           onSave={async (input) => {
             await change(api.updateCategory(category.id, input))
           }}
           onClose={() => setEditing(false)}
+        />
+      )}
+      {adding && (
+        <CategoryEditor
+          title={`New category in ${category.name}`}
+          initial={{
+            name: '',
+            colour: suggestColour(book.categories.map((c) => c.colour)),
+            groupId: category.id,
+          }}
+          confirm="Create"
+          onSave={async (input) => {
+            const created = await change(api.createCategory(input))
+            navigate(`/categories/${created.id}`)
+          }}
+          onClose={() => setAdding(false)}
         />
       )}
       {deleting && (
@@ -481,6 +617,8 @@ function CategoryDetail({ category }: { category: Category }) {
             Its {category.assignments.length === 1 ? 'folder goes' : `${category.assignments.length} folders go`} back
             to Uncategorized, or to a category assigned higher up the tree. No files are touched, and the folders'
             history is kept.
+            {members.length > 0 &&
+              ` The ${members.length === 1 ? 'category' : `${members.length} categories`} in it move${members.length === 1 ? 's' : ''} to the top level.`}
           </p>
         </Modal>
       )}
@@ -512,25 +650,34 @@ function existingAncestor(path: string): string {
 
 function CategoryEditor({
   title,
+  editing,
   initial,
   confirm,
   onSave,
   onClose,
 }: {
   title: string
+  /** The category being edited; none for a new one. */
+  editing?: Category
   initial: CategoryInput
   confirm: string
   onSave: (input: CategoryInput) => Promise<void>
   onClose: () => void
 }) {
+  const book = useCategories()
   const [value, setValue] = useState(initial)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const groupId = useId()
+  // Groups are one level deep: a group can't go into another, and only a
+  // top-level category can hold others.
+  const isGroup = editing !== undefined && book.membersOf(editing.id).length > 0
+  const groups = book.categories.filter((c) => c.groupId === null && c.id !== editing?.id)
   const save = async () => {
     setBusy(true)
     setError(null)
     try {
-      await onSave({ name: value.name.trim(), colour: value.colour })
+      await onSave({ name: value.name.trim(), colour: value.colour, groupId: value.groupId ?? null })
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -560,6 +707,30 @@ function CategoryEditor({
         }}
       >
         <CategoryFields value={value} onChange={setValue} autoFocus />
+        <div className="mt-4">
+          <label htmlFor={groupId} className="mb-1.5 block text-[13px] font-medium text-ink-2">
+            Group
+          </label>
+          <select
+            id={groupId}
+            value={value.groupId ?? ''}
+            disabled={isGroup || groups.length === 0}
+            onChange={(e) => setValue({ ...value, groupId: e.target.value === '' ? null : Number(e.target.value) })}
+            className="h-10 w-full rounded-lg border border-line-strong bg-sunken px-3 text-sm text-ink focus:border-focus focus:outline-none disabled:opacity-60"
+          >
+            <option value="">None: a top-level category</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                In {g.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[12px] text-muted">
+            {isGroup
+              ? 'It holds other categories, so it stays at the top level.'
+              : 'Put related categories together, such as Movies and TV in Media. The group shows their total.'}
+          </p>
+        </div>
         {error && (
           <p role="alert" className="mt-3 text-[13px] text-bad">
             {error}

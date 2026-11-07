@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/Marcowich0/hoardboard/internal/category"
 	"github.com/Marcowich0/hoardboard/internal/inventory"
+	"github.com/Marcowich0/hoardboard/internal/tree"
 )
 
 func init() {
@@ -62,6 +64,9 @@ type diskJSON struct {
 	Kind       inventory.Kind `json:"kind"`
 	Filesystem string         `json:"filesystem"`
 	spaceJSON
+	// Split is the Disk's Used space by category, like the donut, but
+	// from the bytes the latest Scan found on this Disk alone.
+	Split donutJSON `json:"split"`
 }
 
 type parityJSON struct {
@@ -113,6 +118,7 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	rk, err := s.readRanking(r.Context())
 	if err == nil {
 		resp.Donut = s.donut(rk, resp.Totals.Used)
+		s.splitDisks(rk, resp.Disks)
 		resp.Forecast, resp.ForecastDays, err = s.forecast(r.Context(), s.today(), resp.Totals.Size)
 	}
 	if err == nil {
@@ -153,7 +159,28 @@ func (s *Server) readRanking(ctx context.Context) (ranking, error) {
 // tree: Shared bytes go to the highest-Ranked category they are in, and
 // what the Scan didn't see is Unaccounted.
 func (s *Server) donut(r ranking, used int64) donutJSON {
-	split := category.Measure(s.scans.Tree(), r.assigned).Split(r.ranked, used)
+	return splitJSON(category.Measure(s.scans.Tree(), r.assigned).Split(r.ranked, used))
+}
+
+// splitDisks splits each Disk's live Used space by category in the latest
+// Scan's tree, from the bytes found on that Disk: hardlinks never cross
+// Disks, so each file is on exactly one. A Disk the Scan didn't walk is all
+// Unaccounted.
+func (s *Server) splitDisks(r ranking, disks []diskJSON) {
+	t := s.scans.Tree()
+	for i := range disks {
+		d := &disks[i]
+		sizes := category.Measure(nil, r.assigned)
+		if t != nil {
+			if id := slices.Index(t.Disks, d.Name); id >= 0 {
+				sizes = category.MeasureDisk(t, r.assigned, tree.DiskID(id))
+			}
+		}
+		d.Split = splitJSON(sizes.Split(r.ranked, d.Used))
+	}
+}
+
+func splitJSON(split category.Split) donutJSON {
 	out := donutJSON{
 		Categories:    make([]donutPartJSON, len(split.Categories)),
 		Uncategorized: split.Uncategorized,

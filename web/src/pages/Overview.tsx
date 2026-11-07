@@ -5,7 +5,7 @@ import { useApi } from '../api/useApi.ts'
 import DiskChart from '../charts/DiskChart.tsx'
 import DonutChart from '../charts/DonutChart.tsx'
 import { hatchCss } from '../charts/hatch.ts'
-import { useParts } from '../charts/parts.ts'
+import { type Part, useGroupedParts, useParts } from '../charts/parts.ts'
 import TrendChart from '../charts/TrendChart.tsx'
 import { ShieldIcon, TrendIcon } from '../components/icons.tsx'
 import { Card, ErrorNote, Segmented, Skeleton, Swatch } from '../components/ui.tsx'
@@ -35,14 +35,18 @@ function OverviewBody({ data }: { data: OverviewData }) {
   const [range, setRange] = useState<Range>('1y')
   const days = data.trend.days.length
   const from = range === 'all' ? 0 : Math.max(0, days - (range === '1y' ? 365 : 90))
+  const openPart = (part: Part) => typeof part.key === 'number' && navigate(`/categories/${part.key}`)
 
   return (
     <div className="space-y-4 sm:space-y-5">
       <Summary data={data} />
 
       <div className="grid gap-4 sm:gap-5 lg:grid-cols-2">
-        <Card title="Disks" subtitle="Used and free space per disk, live from the filesystems">
-          <DiskChart disks={data.disks} />
+        <Card
+          title="Disks"
+          subtitle="Used space per disk by category, in the donut's colours; free space in grey"
+        >
+          <DiskChart disks={data.disks} onSelect={openPart} />
           <div className="mt-4 space-y-2 border-t border-line pt-3">
             {data.parity.map((p) => (
               <div key={p.name} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
@@ -65,10 +69,7 @@ function OverviewBody({ data }: { data: OverviewData }) {
           title="What uses the space"
           subtitle="Used space by category; shared bytes count once, for the higher Rank"
         >
-          <DonutChart
-            split={data.donut}
-            onSelect={(part) => typeof part.key === 'number' && navigate(`/categories/${part.key}`)}
-          />
+          <DonutChart split={data.donut} onSelect={openPart} />
         </Card>
       </div>
 
@@ -170,16 +171,32 @@ function Figure({ label, value, detail, icon }: { label: string; value: string; 
   )
 }
 
+/** The trend's legend: a group's categories sit together, under its name. */
 function TrendLegend({ data }: { data: OverviewData }) {
-  const parts = useParts(data.donut)
+  const groups = useGroupedParts(data.donut)
   return (
-    <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-[13px] text-ink-2">
-      {parts.map((p) => (
-        <li key={String(p.key)} className="flex items-center gap-1.5">
-          <Swatch colour={p.colour} hatch={p.hatch} />
-          {p.name}
-        </li>
-      ))}
+    <ul className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-ink-2">
+      {groups.map((g) =>
+        g.members ? (
+          <li
+            key={String(g.key)}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line px-2 py-0.5"
+          >
+            <span className="font-medium text-ink">{g.name}</span>
+            {g.members.map((m) => (
+              <span key={String(m.key)} className="flex items-center gap-1.5">
+                <Swatch colour={m.colour} hatch={m.hatch} />
+                {m.name}
+              </span>
+            ))}
+          </li>
+        ) : (
+          <li key={String(g.key)} className="flex items-center gap-1.5">
+            <Swatch colour={g.colour} hatch={g.hatch} />
+            {g.name}
+          </li>
+        ),
+      )}
     </ul>
   )
 }

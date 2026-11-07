@@ -71,6 +71,18 @@ type group struct {
 // Measure computes what each category takes in t (nil is an empty tree)
 // under the Assignments a.
 func Measure(t *tree.Tree, a Assignments) *Sizes {
+	return measure(t, a, -1)
+}
+
+// MeasureDisk computes what each category takes of one Disk's bytes in t
+// (nil is an empty tree) under the Assignments a. A hardlinked file is on
+// one Disk only, so what the Disks hold adds up to what Measure finds.
+func MeasureDisk(t *tree.Tree, a Assignments, disk tree.DiskID) *Sizes {
+	return measure(t, a, int(disk))
+}
+
+// measure is Measure for disk -1, MeasureDisk otherwise.
+func measure(t *tree.Tree, a Assignments, disk int) *Sizes {
 	if t == nil {
 		return MeasureBytes(Bytes{}, a)
 	}
@@ -83,19 +95,44 @@ func Measure(t *tree.Tree, a Assignments) *Sizes {
 		}
 		return p
 	}
-	links := make([]Link, len(t.Hardlinks))
-	for i, l := range t.Hardlinks {
-		links[i] = Link{Bytes: l.Bytes, Folders: make([]string, len(l.Folders))}
-		for j, f := range l.Folders {
-			links[i].Folders[j] = path(f)
+	// linked is, for one Disk, the bytes of the hardlinked files with a
+	// name below each Folder, each file once: a Folder's DiskBytes less
+	// those is its SingleBytes on that Disk.
+	linked := map[*tree.Folder]int64{}
+	seen := map[*tree.Folder]bool{}
+	links := make([]Link, 0, len(t.Hardlinks))
+	for _, l := range t.Hardlinks {
+		if disk >= 0 && int(l.Disk) != disk {
+			continue
 		}
+		link := Link{Bytes: l.Bytes, Folders: make([]string, len(l.Folders))}
+		clear(seen)
+		for j, f := range l.Folders {
+			link.Folders[j] = path(f)
+			if disk < 0 {
+				continue
+			}
+			// Once a Folder is seen, so are all above it.
+			for g := f; g != nil && !seen[g]; g = g.Parent {
+				seen[g] = true
+				linked[g] += l.Bytes
+			}
+		}
+		links = append(links, link)
 	}
 	return MeasureBytes(Bytes{
 		Single: func(p string) int64 {
-			if f, ok := t.Lookup(p); ok {
+			f, ok := t.Lookup(p)
+			switch {
+			case !ok:
+				return 0
+			case disk < 0:
 				return f.SingleBytes
+			case disk < len(f.DiskBytes):
+				return f.DiskBytes[disk] - linked[f]
+			default:
+				return 0
 			}
-			return 0
 		},
 		Links: links,
 	}, a)
@@ -192,16 +229,27 @@ func (s *Sizes) add(ids []ID, bytes int64) {
 	g.bytes += bytes
 }
 
-// Size is the category's full Size: every byte with a name in one of its
+// Size is the full Size of the categories ids together (a category, or a
+// group and the categories in it): every byte with a name in one of their
 // Folders, each physical file once, Shared bytes included.
-func (s *Sizes) Size(id ID) int64 {
+func (s *Sizes) Size(ids ...ID) int64 {
 	var n int64
 	for _, g := range s.groups {
-		if slices.Contains(g.ids, id) {
+		if overlaps(g.ids, ids) {
 			n += g.bytes
 		}
 	}
 	return n
+}
+
+// overlaps is whether a and b have an id in common.
+func overlaps(a, b []ID) bool {
+	for _, id := range a {
+		if slices.Contains(b, id) {
+			return true
+		}
+	}
+	return false
 }
 
 // Uncategorized is the bytes no Assignment covers: those with every name
@@ -224,17 +272,17 @@ type Shared struct {
 	Bytes int64
 }
 
-// SharedWith is what the category id shares with each other category,
-// largest first. With Uncategorized means names in Folders no Assignment
-// covers.
-func (s *Sizes) SharedWith(id ID) []Shared {
+// SharedWith is what the categories ids together (a category, or a group
+// and the categories in it) share with each category outside them, largest
+// first. With Uncategorized means names in Folders no Assignment covers.
+func (s *Sizes) SharedWith(ids ...ID) []Shared {
 	by := map[ID]int64{}
 	for _, g := range s.groups {
-		if len(g.ids) < 2 || !slices.Contains(g.ids, id) {
+		if len(g.ids) < 2 || !overlaps(g.ids, ids) {
 			continue
 		}
 		for _, other := range g.ids {
-			if other != id {
+			if !slices.Contains(ids, other) {
 				by[other] += g.bytes
 			}
 		}

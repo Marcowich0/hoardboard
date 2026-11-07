@@ -38,6 +38,10 @@ _Avoid_: Other, overhead, system
 A named, coloured group of folders from any share, defined by the owner, such as Movies or TV.
 _Avoid_: Type, tag, group, label
 
+**Group**:
+A top-level category that other categories are in, such as Media holding Movies and TV; its Size covers theirs. Groups are one level deep.
+_Avoid_: Parent, folder, super-category
+
 **Rank**:
 A category's position in the owner's ordering; where categories share bytes, the higher-ranked one owns them in any view that splits used space into parts.
 _Avoid_: Priority, weight

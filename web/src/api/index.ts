@@ -7,12 +7,14 @@ import type { Api } from './types.ts'
 
 export const api: Api = {
   health: http.health,
-  // Totals, disk bars, parity, donut, trend and forecast.
+  // Totals, disk bars (each split by category), parity, donut, trend and forecast.
   overview: http.overview,
   // Folders, files, Size, items, Shared bytes, bytes per Disk, the change
   // over the period and each one's effective category (null for
   // Uncategorized).
   tree: http.tree,
+  // The same Folder nested a few levels deep, for the Explorer's treemap.
+  treemap: http.treemap,
   largest: http.largest, // with each file's effective category
   folderHistory: http.folderHistory,
   // From folder History under today's Assignments.

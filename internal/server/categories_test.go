@@ -24,6 +24,7 @@ type category struct {
 	Name        string       `json:"name"`
 	Colour      string       `json:"colour"`
 	Rank        int          `json:"rank"`
+	GroupID     *int64       `json:"groupId"`
 	Size        int64        `json:"size"`
 	SharedWith  []sharedWith `json:"sharedWith"`
 	Assignments []assignment `json:"assignments"`
