@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { TreemapNode } from '../api/index.ts'
 import { type CategoryBook, useCategories } from '../categories.ts'
 import { labelInk, mix, shade, type Theme, uncategorizedTints } from '../lib/colours.ts'
@@ -57,16 +57,19 @@ export default function TreemapChart({
 }) {
   const theme = useCurrentTheme()
   const book = useCategories()
-  // The chart's size, to tell which tiles have room for a label.
+  // The chart's size, to fit the tiles to it: measured before the first
+  // paint (a ResizeObserver's first call can come late), then on resizes.
   const box = useRef<HTMLDivElement>(null)
   const [area, setArea] = useState(0)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = box.current
     if (!el) return
-    const observer = new ResizeObserver(([entry]) => {
-      const next = Math.round(entry.contentRect.width * entry.contentRect.height)
+    const measure = () => {
+      const next = Math.round(el.clientWidth * el.clientHeight)
       setArea((a) => (Math.abs(a - next) > a * 0.05 ? next : a))
-    })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
   }, [])
@@ -157,7 +160,8 @@ export default function TreemapChart({
 
   return (
     <div ref={box} style={{ height }}>
-      <EChart
+      {/* Mounted once the box is measured, so the chart's first option has its tiles. */}
+      {area > 0 && <EChart
       option={option}
       height="100%"
       label="What this folder holds, nested a few levels deep, sized by Size"
@@ -165,7 +169,7 @@ export default function TreemapChart({
         const node = e.data ? byId.get((e.data as { id: string }).id) : undefined
         if (node && node.kind !== 'rest') onOpen({ ...node, children: undefined })
       }}
-      />
+      />}
     </div>
   )
 }
