@@ -1,0 +1,105 @@
+@import 'tailwindcss';
+
+/* Dark is the default; <html data-theme="light"> switches (see theme.ts). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/*
+ * Design tokens. Pages use these roles (bg-card, text-ink-2, border-line, …)
+ * rather than raw colours, so both themes come from this one block. Warm
+ * neutrals, so category colours are the only colour on a page.
+ */
+:root {
+  color-scheme: dark;
+  --page: #0e0e0d;
+  --card: #171716;
+  --raised: #1f1f1d;
+  --sunken: #121211;
+  --line: #2a2a27;
+  --line-strong: #3a3a37;
+  --ink: #f0efec;
+  --ink-2: #c3c2b7;
+  --muted: #8f8d85;
+  --focus: #5598e7;
+  --good: #0ca30c;
+  --warn: #fab219;
+  --bad: #e66767;
+  --track: #262624;
+  --meter: #9d9b92;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --page: #f4f3ef;
+  --card: #fcfcfb;
+  --raised: #f1f0ec;
+  --sunken: #eceae4;
+  --line: #e2e0d9;
+  --line-strong: #cfcdc4;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #7b7972;
+  --focus: #2a78d6;
+  --good: #006300;
+  --warn: #a86b00;
+  --bad: #c22f2f;
+  --track: #e7e5df;
+  --meter: #52514e;
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-card: var(--card);
+  --color-raised: var(--raised);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-focus: var(--focus);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-track: var(--track);
+  --color-meter: var(--meter);
+  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+html {
+  background: var(--page);
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  @apply bg-page font-sans text-ink antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Pending data fades rather than blinks. */
+.loading-fade {
+  transition: opacity 200ms ease;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 2.5s;
+  }
+}

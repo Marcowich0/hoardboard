@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request: {}
+
+# Every job runs on a GitHub-hosted runner. This repository is public, and a
+# pull request's run uses the workflow file *from the pull request*, so any
+# job in this file can be rewritten by a stranger: no job here may ever use a
+# self-hosted runner. Deploying to Tower happens elsewhere, only for main.
+#
+# Nothing more than reading by default: each job asks for what it needs. Only
+# publish, which never runs for a pull request, can write packages.
+#
+# Every action is pinned to a full commit SHA, with its release in a comment
+# (Dependabot updates both, see .github/dependabot.yml): a tag can be moved to
+# new code. Pin any action you add the same way.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+      # A high or critical advisory fails the build, including dev
+      # dependencies, which run here and in the image build.
+      - name: Scan npm packages
+        run: npm audit --audit-level=high
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # Without -tags webdist the stub page is embedded, so no Node is needed.
+      - name: Format
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::not gofmt-ed: $unformatted"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
+      # With the race detector. SQLite's transpiled C is left uninstrumented
+      # (it runs 40 times slower under the detector), and temp files, where
+      # every test keeps its fake disks and database, live in memory.
+      - name: Test
+        env:
+          TMPDIR: /dev/shm
+        run: go test -race -gcflags='modernc.org/sqlite/lib=-race=false -d=checkptr=0' ./...
+      # Fails when the code actually calls a known-vulnerable function.
+      - name: Scan Go modules
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  image:
+    runs-on: ubuntu-latest
+    env:
+      CI_IMAGE: hoardboard:ci
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # :latest and :sha-<short> on main; nothing is pushed for pull requests.
+      - name: Image tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-,format=short,enable={{is_default_branch}}
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: ${{ env.CI_IMAGE }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GET /api/health reports it, so a deploy can check what runs.
+          build-args: REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Seam 2: the image as deployed (capabilities, read-only mounts) over
+      # a tiny fixture. Locally: scripts/smoke-test.sh hoardboard:dev
+      - name: Smoke test
+        run: scripts/smoke-test.sh "$CI_IMAGE" "$GITHUB_SHA"
+
+      # publish pushes this very image, not a rebuild.
+      - name: Save image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: docker save "$CI_IMAGE" | gzip > "$RUNNER_TEMP/image.tar.gz"
+      - name: Upload image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image
+          path: ${{ runner.temp }}/image.tar.gz
+          retention-days: 1
+
+  # Pushes the tested image to GHCR. A job of its own so that a pull
+  # request's run never gets packages: write: it runs only for pushes to main,
+  # once every check has passed. The package is public.
+  publish:
+    needs: [web, go, image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    env:
+      CI_IMAGE: hoardboard:ci
+      TAGS: ${{ needs.image.outputs.tags }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image
+          path: ${{ runner.temp }}
+      - name: Load image
+        run: gunzip -c "$RUNNER_TEMP/image.tar.gz" | docker load
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push image
+        run: |
+          if [ -z "$TAGS" ]; then
+            echo "::error::no image tags for $GITHUB_REF"
+            exit 1
+          fi
+          while IFS= read -r tag; do
+            [ -n "$tag" ] || continue
+            docker tag "$CI_IMAGE" "$tag"
+            docker push "$tag"
+          done <<< "$TAGS"
